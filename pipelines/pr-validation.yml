@@ -138,30 +138,30 @@ steps:
 
       # Construire le corps du commentaire dans un fichier
       COMMENT_FILE="$(Agent.TempDirectory)/pr-comment.md"
-      cat > "$COMMENT_FILE" <<MDEOF
-$HEADER
-
-$SUMMARY
-
-| Contrôle | Résultat |
-|----------|----------|
-| 🧪 Tests unitaires | $(TEST_ICON) $(TEST_LABEL) |
-| 🔍 Codengine analyse | $(ANALYZE_ICON) $(ANALYZE_LABEL) |
-
-*Commit : \`$COMMIT_SHORT\` — Pipeline : [#$(Build.BuildNumber)]($(System.TeamFoundationCollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId))*
-MDEOF
+      {
+        echo "$HEADER"
+        echo ""
+        echo "$SUMMARY"
+        echo ""
+        echo "| Contrôle | Résultat |"
+        echo "|----------|----------|"
+        echo "| 🧪 Tests unitaires | $(TEST_ICON) $(TEST_LABEL) |"
+        echo "| 🔍 Codengine analyse | $(ANALYZE_ICON) $(ANALYZE_LABEL) |"
+        echo ""
+        echo "*Commit : \`$COMMIT_SHORT\` — Pipeline : [#$(Build.BuildNumber)]($(System.TeamFoundationCollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId))*"
+      } > "$COMMENT_FILE"
 
       # Ajouter le détail des violations si présent
       if [ -f "$(Agent.TempDirectory)/violations.md" ] && [ -s "$(Agent.TempDirectory)/violations.md" ]; then
-        cat >> "$COMMENT_FILE" <<MDEOF
-
-<details>
-<summary>Violations Codengine (cliquer pour développer)</summary>
-
-$(cat "$(Agent.TempDirectory)/violations.md")
-
-</details>
-MDEOF
+        {
+          echo ""
+          echo "<details>"
+          echo "<summary>Violations Codengine (cliquer pour développer)</summary>"
+          echo ""
+          cat "$(Agent.TempDirectory)/violations.md"
+          echo ""
+          echo "</details>"
+        } >> "$COMMENT_FILE"
       fi
 
       # Encoder en JSON et poster sur la PR
