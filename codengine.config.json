@@ -1,0 +1,42 @@
+{
+  "$schema": "./codengine.schema.json",
+  "sourcePath": ".",
+  "includePatterns": [
+    "**/*.cs"
+  ],
+  "excludePatterns": [
+    "**/bin/**",
+    "**/obj/**",
+    "**/node_modules/**",
+    "**/Migrations/**",
+    "**/*.Designer.cs",
+    "**/*.g.cs"
+  ],
+  "rules": {
+    "COD001": {
+      "enabled": true,
+      "severity": "error"
+    },
+    "COD002": {
+      "enabled": true,
+      "severity": "error"
+    }
+  },
+  "reporting": {
+    "format": "console",
+    "outputPath": null,
+    "verbose": false,
+    "includeCodeSnippets": true
+  },
+  "oracle": {
+    "connectionString": "Data Source=//localhost:1521/ORCL;User Id=user;Password=password;",
+    "schema": null,
+    "outputDirectory": "./oracle_packages",
+    "includePackageBodies": true,
+    "includePatterns": [],
+    "excludePatterns": [
+      "SYS_*",
+      "DBMS_*"
+    ]
+  }
+}
