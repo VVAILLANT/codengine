@@ -7,16 +7,17 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace Codengine.Rules.CSharp;
 
 /// <summary>
-/// Vérifie qu'avant d'utiliser liste.Contains() dans un Where() ou Query<>(),
+/// Vérifie qu'avant d'utiliser liste.Contains() dans un Query&lt;&gt;().Where(),
 /// la liste est vérifiée pour ne pas être nulle ou vide.
-/// Cela évite des erreurs SQL et des performances dégradées.
+/// Une liste vide dans un Contains() ORM peut annuler la clause WHERE et retourner toutes les lignes de la table.
+/// Ne s'applique qu'aux chaînes ORM démarrant par Query&lt;&gt;, Table&lt;&gt;, Set&lt;&gt;, GetTable, From.
 /// </summary>
 public class EmptyListBeforeContainsRule : RuleBase
 {
     public override string Id => "COD002";
     public override string Name => "EmptyListBeforeContains";
     public override string Description =>
-        "Une liste utilisée dans Contains() au sein d'un Where() doit être vérifiée pour null/vide avant utilisation.";
+        "Une liste utilisée dans Contains() au sein d'un Query<>().Where() ORM doit être vérifiée pour null/vide avant utilisation. Une liste vide peut annuler la clause WHERE et retourner toutes les lignes de la table.";
     public override RuleSeverity Severity => RuleSeverity.Error;
     public override string Category => "NullSafety";
 
@@ -91,7 +92,8 @@ public class EmptyListBeforeContainsRule : RuleBase
         // ou un IQueryable/IEnumerable avec LINQ
         var expressionChain = GetExpressionChain(whereInvocation);
 
-        // Chercher Query<>, Table<>, Set<>, ou autres méthodes de démarrage de requête
+        // Chercher uniquement les méthodes de démarrage de requête ORM
+        // Query<>, Table<>, Set<>, GetTable, From — pas les collections LINQ en mémoire
         foreach (var expr in expressionChain)
         {
             if (expr is InvocationExpressionSyntax invocation)
@@ -100,19 +102,10 @@ public class EmptyListBeforeContainsRule : RuleBase
                 if (methodName is "Query" or "Table" or "Set" or "GetTable" or "From")
                     return true;
             }
-
-            // Aussi accepter les expressions LINQ to Objects qui pourraient être traduites en SQL
-            if (expr is MemberAccessExpressionSyntax memberAccess)
-            {
-                var name = memberAccess.Name.Identifier.Text;
-                if (name is "Where" or "Select" or "OrderBy" or "Join")
-                    return true;
-            }
         }
 
-        // Par défaut, on analyse aussi les chaînes LINQ classiques car elles peuvent
-        // être utilisées avec Entity Framework ou autre ORM
-        return true;
+        // Par défaut : ne pas flaguer — la règle ne cible que les chaînes ORM explicites
+        return false;
     }
 
     private static IEnumerable<ExpressionSyntax> GetExpressionChain(ExpressionSyntax expression)

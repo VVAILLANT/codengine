@@ -10,8 +10,9 @@ public class EmptyListBeforeContainsRuleTests
     private readonly EmptyListBeforeContainsRule _rule = new();
 
     [Fact]
-    public void Should_Detect_Missing_NullOrEmpty_Check()
+    public void Should_Detect_Missing_Check_In_ORM_Query()
     {
+        // Query<>().Where() sans vérification de la liste → doit détecter
         var code = @"
 using System.Linq;
 using System.Collections.Generic;
@@ -20,10 +21,10 @@ public class Test
 {
     public void Method(List<int> ids)
     {
-        var query = GetItems().Where(x => ids.Contains(x.Id));
+        var query = Query<Item>().Where(x => ids.Contains(x.Id));
     }
 
-    private IEnumerable<Item> GetItems() => new List<Item>();
+    private IQueryable<Item> Query<T>() => null;
 }
 
 public class Item { public int Id { get; set; } }
@@ -36,8 +37,9 @@ public class Item { public int Id { get; set; } }
     }
 
     [Fact]
-    public void Should_Not_Detect_When_Check_Exists()
+    public void Should_Not_Detect_When_Check_Exists_In_ORM_Query()
     {
+        // Query<>().Where() avec vérification → ne doit pas détecter
         var code = @"
 using System.Linq;
 using System.Collections.Generic;
@@ -47,10 +49,10 @@ public class Test
     public void Method(List<int> ids)
     {
         if (ids == null || !ids.Any()) return;
-        var query = GetItems().Where(x => ids.Contains(x.Id));
+        var query = Query<Item>().Where(x => ids.Contains(x.Id));
     }
 
-    private IEnumerable<Item> GetItems() => new List<Item>();
+    private IQueryable<Item> Query<T>() => null;
 }
 
 public class Item { public int Id { get; set; } }
@@ -62,8 +64,9 @@ public class Item { public int Id { get; set; } }
     }
 
     [Fact]
-    public void Should_Not_Detect_When_Count_Check_Exists()
+    public void Should_Not_Detect_When_Count_Check_Exists_In_ORM_Query()
     {
+        // Query<>().Where() avec vérification Count → ne doit pas détecter
         var code = @"
 using System.Linq;
 using System.Collections.Generic;
@@ -73,6 +76,33 @@ public class Test
     public void Method(List<int> ids)
     {
         if (ids == null || ids.Count == 0) return;
+        var query = Query<Item>().Where(x => ids.Contains(x.Id));
+    }
+
+    private IQueryable<Item> Query<T>() => null;
+}
+
+public class Item { public int Id { get; set; } }
+";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Should_Not_Detect_In_Memory_Linq_Without_Check()
+    {
+        // Collection en mémoire (GetItems().Where) → ne doit PAS détecter,
+        // même sans vérification : Contains sur une liste vide retourne false sans effet de bord SQL.
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Test
+{
+    public void Method(List<int> ids)
+    {
         var query = GetItems().Where(x => ids.Contains(x.Id));
     }
 
