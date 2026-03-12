@@ -51,8 +51,8 @@ public class HtmlReporter : IReporter
         sb.AppendLine("    <main>");
         sb.AppendLine("        <section class=\"summary\">");
         sb.AppendLine("            <h2>Résumé</h2>");
+        sb.AppendLine($"            <div class=\"summary-card summary-card-full\"><span class=\"label\">Source</span><span class=\"value source-path\">{HttpUtility.HtmlEncode(result.SourcePath)}</span></div>");
         sb.AppendLine("            <div class=\"summary-grid\">");
-        sb.AppendLine($"                <div class=\"summary-card\"><span class=\"label\">Source</span><span class=\"value\">{HttpUtility.HtmlEncode(result.SourcePath)}</span></div>");
         sb.AppendLine($"                <div class=\"summary-card\"><span class=\"label\">Fichiers analysés</span><span class=\"value\">{result.FilesAnalyzed}</span></div>");
         sb.AppendLine($"                <div class=\"summary-card\"><span class=\"label\">Durée</span><span class=\"value\">{result.Duration.TotalSeconds:F2}s</span></div>");
         sb.AppendLine($"                <div class=\"summary-card\"><span class=\"label\">Date</span><span class=\"value\">{result.AnalyzedAt:yyyy-MM-dd HH:mm}</span></div>");
@@ -65,6 +65,36 @@ public class HtmlReporter : IReporter
         sb.AppendLine($"                <div class=\"stat warning\"><span class=\"count\">{result.Warnings}</span><span class=\"type\">Warnings</span></div>");
         sb.AppendLine($"                <div class=\"stat total\"><span class=\"count\">{result.TotalViolations}</span><span class=\"type\">Total</span></div>");
         sb.AppendLine("            </div>");
+
+        // Stats by rule
+        if (result.Violations.Count > 0)
+        {
+            var byRule = result.Violations
+                .GroupBy(v => new { v.RuleId, v.RuleName, v.Severity })
+                .Select(g => new { g.Key.RuleId, g.Key.RuleName, g.Key.Severity, Count = g.Count() })
+                .OrderBy(r => r.RuleId)
+                .ToList();
+
+            sb.AppendLine("            <div class=\"rules-breakdown\">");
+            sb.AppendLine("                <h3>Par règle</h3>");
+            sb.AppendLine("                <table class=\"rules-table\">");
+            sb.AppendLine("                    <thead><tr><th>ID</th><th>Règle</th><th>Sévérité</th><th>Occurrences</th></tr></thead>");
+            sb.AppendLine("                    <tbody>");
+            foreach (var r in byRule)
+            {
+                var sc = r.Severity.ToString().ToLower();
+                sb.AppendLine($"                        <tr>");
+                sb.AppendLine($"                            <td class=\"rule\">{HttpUtility.HtmlEncode(r.RuleId)}</td>");
+                sb.AppendLine($"                            <td>{HttpUtility.HtmlEncode(r.RuleName)}</td>");
+                sb.AppendLine($"                            <td><span class=\"badge {sc}\">{r.Severity}</span></td>");
+                sb.AppendLine($"                            <td class=\"rule-count\">{r.Count}</td>");
+                sb.AppendLine($"                        </tr>");
+            }
+            sb.AppendLine("                    </tbody>");
+            sb.AppendLine("                </table>");
+            sb.AppendLine("            </div>");
+        }
+
         sb.AppendLine("        </section>");
 
         // Violations by file
@@ -146,6 +176,9 @@ public class HtmlReporter : IReporter
         main { max-width: 1200px; margin: 2rem auto; padding: 0 1rem; }
         section { background: white; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         h2 { color: #444; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #eee; }
+        .summary-card-full { background: #f8f9fa; padding: 1rem; border-radius: 6px; margin-bottom: 1rem; }
+        .summary-card-full .label { display: block; font-size: 0.85rem; color: #666; margin-bottom: 0.25rem; }
+        .source-path { display: block; font-family: monospace; font-size: 1rem; font-weight: 600; color: #333; word-break: break-all; white-space: pre-wrap; }
         .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
         .summary-card { background: #f8f9fa; padding: 1rem; border-radius: 6px; }
         .summary-card .label { display: block; font-size: 0.85rem; color: #666; }
@@ -158,8 +191,14 @@ public class HtmlReporter : IReporter
         .stat.error { background: #fd7e14; color: white; }
         .stat.warning { background: #ffc107; color: #333; }
         .stat.total { background: #6c757d; color: white; }
+        .rules-breakdown { margin-top: 1.5rem; }
+        .rules-breakdown h3 { color: #444; margin-bottom: 0.75rem; font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        .rules-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        .rules-table th, .rules-table td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #eee; }
+        .rules-table th { background: #f8f9fa; font-weight: 600; }
+        .rule-count { font-weight: 700; text-align: center; width: 100px; }
         .file-group { margin-bottom: 1.5rem; }
-        .file-path { font-size: 1rem; color: #0066cc; padding: 0.5rem; background: #f0f7ff; border-radius: 4px; margin-bottom: 0.5rem; font-family: monospace; }
+        .file-path { font-size: 1rem; color: #0066cc; padding: 0.5rem; background: #f0f7ff; border-radius: 4px; margin-bottom: 0.5rem; font-family: monospace; word-break: break-all; white-space: pre-wrap; }
         table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
         th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #eee; }
         th { background: #f8f9fa; font-weight: 600; }

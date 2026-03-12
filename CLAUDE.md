@@ -58,10 +58,26 @@ DOTNET="/c/Program Files/dotnet/dotnet.exe"
 "$DOTNET" tool install --global --add-source src/Codengine.Cli/nupkg Codengine.Cli
 # Ensuite : codengine <commande> depuis n'importe où
 
-# Mettre à jour l'outil global après modification
-"$DOTNET" pack src/Codengine.Cli -o src/Codengine.Cli/nupkg
-"$DOTNET" tool update --global --add-source src/Codengine.Cli/nupkg Codengine.Cli
+# Publier l'outil global après modification (bump version + réinstall)
+bash scripts/publish-tool.sh
 ```
+
+## Règle : publication automatique après modification validée
+
+**IMPORTANT** : Après chaque ensemble de modifications validées par l'utilisateur (fonctionnalité, bug fix, etc.), exécuter automatiquement :
+
+```bash
+bash scripts/publish-tool.sh
+```
+
+Ce script :
+1. Lit la version actuelle dans `src/Codengine.Cli/Codengine.Cli.csproj`
+2. Incrémente le numéro de patch (ex. 1.0.3 → 1.0.4)
+3. Met à jour le `.csproj`
+4. Repack le `.nupkg`
+5. Désinstalle et réinstalle l'outil global `codengine`
+
+Ne pas exécuter ce script si l'utilisateur ne demande que des recherches ou explications sans modification de code.
 
 ## Commandes CLI
 
