@@ -1,0 +1,197 @@
+trigger: none
+
+pr:
+  branches:
+    include:
+      - master
+
+name: $(Date:yyyyMMdd).$(Rev:r) • PR $(System.PullRequest.PullRequestId) (validation)
+appendCommitMessageToRunName: false
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  NUGET_PACKAGES: $(Pipeline.Workspace)/.nuget/packages
+  BUILD_CONFIG: Release
+  CODENGINE_DLL: src/Codengine.Cli/bin/Release/net9.0/Codengine.Cli.dll
+  REPORT_PATH: $(Agent.TempDirectory)/codengine-report.json
+
+steps:
+  - checkout: self
+
+  - task: UseDotNet@2
+    inputs:
+      packageType: sdk
+      version: "9.x"
+    displayName: Use .NET 9 SDK
+
+  # Cache NuGet : évite de retélécharger les packages à chaque run
+  - task: Cache@2
+    inputs:
+      key: 'nuget | "$(Agent.OS)" | **/Codengine*.csproj'
+      restoreKeys: |
+        nuget | "$(Agent.OS)"
+      path: $(NUGET_PACKAGES)
+    displayName: Cache NuGet packages
+
+  - script: dotnet restore codengine.sln
+    displayName: Restore
+
+  - script: dotnet build codengine.sln --no-restore -c $(BUILD_CONFIG) -v minimal
+    displayName: Build
+
+  # ── Tests ─────────────────────────────────────────────────────────────────
+  - script: |
+      set +e
+      dotnet test codengine.sln --no-build -c $(BUILD_CONFIG) \
+        --logger "trx;LogFileName=results.trx" \
+        --results-directory "$(Agent.TempDirectory)/TestResults"
+      TEST_EXIT=$?
+
+      if [ $TEST_EXIT -eq 0 ]; then
+        # Compter les tests depuis le .trx
+        TRX="$(Agent.TempDirectory)/TestResults/results.trx"
+        if [ -f "$TRX" ]; then
+          TOTAL=$(grep -o 'total="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9]*')
+          PASSED=$(grep -o 'passed="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9]*')
+        fi
+        TOTAL="${TOTAL:-?}"
+        PASSED="${PASSED:-?}"
+        echo "##vso[task.setvariable variable=TEST_ICON]✅"
+        echo "##vso[task.setvariable variable=TEST_LABEL]OK ($PASSED/$TOTAL tests)"
+        echo "##vso[task.setvariable variable=TESTS_PASSED]true"
+      else
+        TRX="$(Agent.TempDirectory)/TestResults/results.trx"
+        if [ -f "$TRX" ]; then
+          FAILED=$(grep -o 'failed="[0-9]*"' "$TRX" | head -1 | grep -o '[0-9]*')
+        fi
+        FAILED="${FAILED:-?}"
+        echo "##vso[task.setvariable variable=TEST_ICON]❌"
+        echo "##vso[task.setvariable variable=TEST_LABEL]ÉCHEC ($FAILED test(s) en erreur)"
+        echo "##vso[task.setvariable variable=TESTS_PASSED]false"
+      fi
+    displayName: Tests
+    continueOnError: true
+
+  - task: PublishTestResults@2
+    inputs:
+      testResultsFormat: VSTest
+      testResultsFiles: "$(Agent.TempDirectory)/TestResults/*.trx"
+      failTaskOnFailedTests: false
+    displayName: Publish test results
+    condition: always()
+
+  # ── Codengine analyze ──────────────────────────────────────────────────────
+  # Exécuté directement depuis le DLL déjà buildé — aucune installation globale
+  - script: |
+      set +e
+      REPORT="$(REPORT_PATH)"
+
+      dotnet $(CODENGINE_DLL) analyze ./src -f json -o "$REPORT" 2>&1
+      ANALYZE_EXIT=$?
+
+      if [ ! -f "$REPORT" ]; then
+        echo "##vso[task.setvariable variable=ANALYZE_ICON]⚠️"
+        echo "##vso[task.setvariable variable=ANALYZE_LABEL]Rapport non généré"
+        echo "##vso[task.setvariable variable=ANALYZE_PASSED]false"
+        exit 0
+      fi
+
+      TOTAL=$(jq '.summary.totalViolations' "$REPORT")
+      ERRORS=$(jq '.summary.errors' "$REPORT")
+      WARNINGS=$(jq '.summary.warnings' "$REPORT")
+      HAS_ERRORS=$(jq '.summary.hasErrors' "$REPORT")
+
+      if [ "$HAS_ERRORS" = "false" ]; then
+        echo "##vso[task.setvariable variable=ANALYZE_ICON]✅"
+        echo "##vso[task.setvariable variable=ANALYZE_LABEL]OK — $TOTAL violation(s) ($ERRORS erreur(s), $WARNINGS avertissement(s))"
+        echo "##vso[task.setvariable variable=ANALYZE_PASSED]true"
+      else
+        echo "##vso[task.setvariable variable=ANALYZE_ICON]❌"
+        echo "##vso[task.setvariable variable=ANALYZE_LABEL]$ERRORS erreur(s), $WARNINGS avertissement(s) — $TOTAL violation(s) au total"
+        echo "##vso[task.setvariable variable=ANALYZE_PASSED]false"
+
+        # Détails des violations (max 20 lignes) dans un fichier intermédiaire
+        jq -r '.violations[] | "- **\(.ruleId)** `\(.filePath | split("/")[-1]):\(.line)` — \(.message) [\(.severity)]"' \
+          "$REPORT" | head -20 > "$(Agent.TempDirectory)/violations.md"
+      fi
+    displayName: Codengine analyze
+    continueOnError: true
+
+  # ── Commentaire PR ─────────────────────────────────────────────────────────
+  - script: |
+      TESTS_OK="$(TESTS_PASSED)"
+      ANALYZE_OK="$(ANALYZE_PASSED)"
+
+      if [ "$TESTS_OK" = "true" ] && [ "$ANALYZE_OK" = "true" ]; then
+        HEADER="## ✅ Validation PR — OK"
+        SUMMARY="Tous les contrôles sont passés avec succès."
+      else
+        HEADER="## ❌ Validation PR — Erreur(s) détectée(s)"
+        SUMMARY="Des erreurs bloquent le merge. Veuillez corriger les points ci-dessous."
+      fi
+
+      COMMIT_SHORT=$(echo "$(Build.SourceVersion)" | cut -c1-7)
+
+      # Construire le corps du commentaire dans un fichier
+      COMMENT_FILE="$(Agent.TempDirectory)/pr-comment.md"
+      cat > "$COMMENT_FILE" <<MDEOF
+$HEADER
+
+$SUMMARY
+
+| Contrôle | Résultat |
+|----------|----------|
+| 🧪 Tests unitaires | $(TEST_ICON) $(TEST_LABEL) |
+| 🔍 Codengine analyse | $(ANALYZE_ICON) $(ANALYZE_LABEL) |
+
+*Commit : \`$COMMIT_SHORT\` — Pipeline : [#$(Build.BuildNumber)]($(System.TeamFoundationCollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId))*
+MDEOF
+
+      # Ajouter le détail des violations si présent
+      if [ -f "$(Agent.TempDirectory)/violations.md" ] && [ -s "$(Agent.TempDirectory)/violations.md" ]; then
+        cat >> "$COMMENT_FILE" <<MDEOF
+
+<details>
+<summary>Violations Codengine (cliquer pour développer)</summary>
+
+$(cat "$(Agent.TempDirectory)/violations.md")
+
+</details>
+MDEOF
+      fi
+
+      # Encoder en JSON et poster sur la PR
+      BODY=$(cat "$COMMENT_FILE")
+      PAYLOAD=$(jq -n --arg body "$BODY" \
+        '{"comments":[{"content":$body,"commentType":1}],"status":1}')
+
+      THREADS_URL="${SYSTEM_TEAMFOUNDATIONCOLLECTIONURI}${SYSTEM_TEAMPROJECTID}/_apis/git/repositories/${BUILD_REPOSITORY_ID}/pullRequests/${SYSTEM_PULLREQUEST_PULLREQUESTID}/threads?api-version=7.1"
+
+      HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$THREADS_URL" \
+        -H "Authorization: Bearer $SYSTEM_ACCESSTOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$PAYLOAD")
+
+      if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+        echo "Commentaire posté sur la PR (HTTP $HTTP_STATUS)"
+      else
+        echo "##vso[task.logissue type=warning]Impossible de poster le commentaire (HTTP $HTTP_STATUS)"
+      fi
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+    displayName: Post PR comment
+    condition: and(always(), ne(variables['System.PullRequest.PullRequestId'], ''))
+
+  # ── Fail si erreurs ────────────────────────────────────────────────────────
+  - script: |
+      FAIL=false
+      [ "$(TESTS_PASSED)" != "true" ] && FAIL=true && echo "##vso[task.logissue type=error]Tests unitaires en échec."
+      [ "$(ANALYZE_PASSED)" != "true" ] && FAIL=true && echo "##vso[task.logissue type=error]Codengine a détecté des erreurs."
+      [ "$FAIL" = "true" ] && exit 1
+      echo "Tous les contrôles sont passés."
+    displayName: Fail pipeline if errors
+    condition: always()
