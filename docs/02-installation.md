@@ -45,27 +45,27 @@ dotnet publish src/Codengine.Cli -c Release -o ./publish
 
 L'exécutable sera dans `./publish/Codengine.Cli.exe` (Windows) ou `./publish/Codengine.Cli` (Linux/macOS).
 
-### Option 2 : Comme outil global .NET (futur)
+### Option 2 : Comme outil global .NET (recommandé)
 
 ```bash
-# Installation
-dotnet tool install -g codengine
+# Packager
+dotnet pack src/Codengine.Cli -o src/Codengine.Cli/nupkg
 
-# Utilisation
+# Installer globalement
+dotnet tool install --global --add-source src/Codengine.Cli/nupkg Codengine.Cli
+
+# Utilisation depuis n'importe où
 codengine analyze ./src
 ```
 
 ## Vérification de l'installation
 
 ```bash
-# Depuis les sources
-dotnet run --project src/Codengine.Cli -- --version
-
-# Ou avec l'exécutable publié
-./publish/Codengine.Cli --version
-
 # Lister les règles disponibles
 codengine list-rules
+
+# Ou depuis les sources sans installation
+dotnet run --project src/Codengine.Cli -- --version
 ```
 
 ## Structure des fichiers installés
@@ -87,18 +87,14 @@ codengine/
 ```bash
 # Depuis les sources
 git pull
-dotnet build -c Release
 
-# Outil global (futur)
-dotnet tool update -g codengine
+# Re-packager et mettre à jour l'outil global
+dotnet pack src/Codengine.Cli -o src/Codengine.Cli/nupkg
+dotnet tool update --global --add-source src/Codengine.Cli/nupkg Codengine.Cli
 ```
 
 ## Désinstallation
 
 ```bash
-# Supprimer le dossier d'installation
-rm -rf /chemin/vers/codengine
-
-# Outil global (futur)
-dotnet tool uninstall -g codengine
+dotnet tool uninstall --global Codengine.Cli
 ```

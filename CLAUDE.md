@@ -50,11 +50,17 @@ DOTNET="/c/Program Files/dotnet/dotnet.exe"
 # Tests
 "$DOTNET" test
 
-# Exécuter le CLI
+# Exécuter le CLI (sans installation)
 "$DOTNET" run --project src/Codengine.Cli -- <commande>
 
-# Publier
-"$DOTNET" publish -c Release -o ./publish
+# Installer comme outil global (une seule fois)
+"$DOTNET" pack src/Codengine.Cli -o src/Codengine.Cli/nupkg
+"$DOTNET" tool install --global --add-source src/Codengine.Cli/nupkg Codengine.Cli
+# Ensuite : codengine <commande> depuis n'importe où
+
+# Mettre à jour l'outil global après modification
+"$DOTNET" pack src/Codengine.Cli -o src/Codengine.Cli/nupkg
+"$DOTNET" tool update --global --add-source src/Codengine.Cli/nupkg Codengine.Cli
 ```
 
 ## Commandes CLI

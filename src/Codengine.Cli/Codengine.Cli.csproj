@@ -6,6 +6,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>Codengine.Cli</RootNamespace>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>codengine</ToolCommandName>
+    <PackageId>Codengine.Cli</PackageId>
+    <Version>1.0.0</Version>
   </PropertyGroup>
 
   <ItemGroup>

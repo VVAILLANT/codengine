@@ -20,8 +20,12 @@ bld/
 *.nupkg
 *.snupkg
 packages/
+nupkg/
 *.nuget.props
 *.nuget.targets
+
+# Publish output
+publish/
 
 # Rider
 .idea/
