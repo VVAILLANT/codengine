@@ -1,0 +1,237 @@
+trigger: none
+
+pr:
+  branches:
+    include:
+      - develop
+
+name: $(Date:yyyyMMdd).$(Rev:r) • PR $(System.PullRequest.PullRequestId) (codengine)
+appendCommitMessageToRunName: false
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  CODENGINE_DIR: $(Pipeline.Workspace)/codengine
+  CODENGINE_DLL: $(Pipeline.Workspace)/codengine/src/Codengine.Cli/bin/Release/net9.0/Codengine.Cli.dll
+  NUGET_PACKAGES: $(Pipeline.Workspace)/.nuget/packages
+  REPORT_PATH: $(Agent.TempDirectory)/codengine-report.json
+  CHANGED_FILES_PATH: $(Agent.TempDirectory)/changed-files.txt
+
+steps:
+  - checkout: self
+
+  # ── .NET 9 SDK (pour builder et exécuter Codengine) ────────────────────────
+  - task: UseDotNet@2
+    inputs:
+      packageType: sdk
+      version: "9.x"
+    displayName: Use .NET 9 SDK
+
+  # ── Cache NuGet Codengine ──────────────────────────────────────────────────
+  - task: Cache@2
+    inputs:
+      key: 'codengine-nuget | "$(Agent.OS)" | $(CODENGINE_DIR)/codengine.sln'
+      restoreKeys: |
+        codengine-nuget | "$(Agent.OS)"
+      path: $(NUGET_PACKAGES)
+    displayName: Cache NuGet (Codengine)
+
+  # ── Cache du build Codengine ───────────────────────────────────────────────
+  # Évite de recompiler si le source n'a pas changé
+  - task: Cache@2
+    inputs:
+      key: 'codengine-build | "$(Agent.OS)" | $(CODENGINE_DIR)/src/Codengine.Cli/Codengine.Cli.csproj'
+      restoreKeys: |
+        codengine-build | "$(Agent.OS)"
+      path: $(CODENGINE_DIR)/src/Codengine.Cli/bin/Release/net9.0
+    displayName: Cache build Codengine
+
+  # ── Cloner et builder Codengine depuis GitHub ──────────────────────────────
+  - script: |
+      if [ -f "$(CODENGINE_DLL)" ]; then
+        echo "Codengine déjà buildé (cache), skip."
+      else
+        echo "Clonage de Codengine..."
+        git clone --depth 1 https://github.com/VVAILLANT/codengine.git "$(CODENGINE_DIR)"
+
+        echo "Build Codengine..."
+        dotnet restore "$(CODENGINE_DIR)/codengine.sln"
+        dotnet build "$(CODENGINE_DIR)/codengine.sln" --no-restore -c Release -v minimal
+      fi
+    displayName: Build Codengine
+
+  # ── Récupérer les fichiers .cs modifiés par la PR ──────────────────────────
+  - script: |
+      PR_ID="$(System.PullRequest.PullRequestId)"
+      ORG_URL="${SYSTEM_TEAMFOUNDATIONCOLLECTIONURI}"
+      PROJECT="${SYSTEM_TEAMPROJECTID}"
+      REPO_ID="${BUILD_REPOSITORY_ID}"
+
+      echo "Récupération des fichiers modifiés pour la PR #$PR_ID..."
+
+      # Appel REST API Azure DevOps : liste des changements de la PR
+      RESPONSE=$(curl -s \
+        -H "Authorization: Bearer $SYSTEM_ACCESSTOKEN" \
+        "${ORG_URL}${PROJECT}/_apis/git/repositories/${REPO_ID}/pullRequests/${PR_ID}/iterations?api-version=7.1")
+
+      LAST_ITERATION=$(echo "$RESPONSE" | jq '.value | length')
+
+      CHANGES=$(curl -s \
+        -H "Authorization: Bearer $SYSTEM_ACCESSTOKEN" \
+        "${ORG_URL}${PROJECT}/_apis/git/repositories/${REPO_ID}/pullRequests/${PR_ID}/iterations/${LAST_ITERATION}/changes?api-version=7.1")
+
+      # Extraire uniquement les fichiers .cs (ajoutés ou modifiés, pas supprimés)
+      echo "$CHANGES" | jq -r '
+        .changeEntries[]
+        | select(.changeType != "delete" and (.item.path | endswith(".cs")))
+        | .item.path
+      ' | while read -r filepath; do
+          # Convertir le chemin relatif en chemin absolu dans le workspace
+          echo "$(Build.SourcesDirectory)${filepath}"
+        done > "$(CHANGED_FILES_PATH)"
+
+      COUNT=$(wc -l < "$(CHANGED_FILES_PATH)")
+      echo "Fichiers .cs modifiés : $COUNT"
+      cat "$(CHANGED_FILES_PATH)"
+
+      echo "##vso[task.setvariable variable=CHANGED_CS_COUNT]$COUNT"
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+    displayName: Get changed .cs files
+
+  # ── Analyse Codengine sur les fichiers modifiés ────────────────────────────
+  - script: |
+      COUNT="$(CHANGED_CS_COUNT)"
+
+      if [ "$COUNT" -eq 0 ]; then
+        echo "Aucun fichier .cs modifié, analyse ignorée."
+        echo "##vso[task.setvariable variable=ANALYZE_ICON]✅"
+        echo "##vso[task.setvariable variable=ANALYZE_LABEL]Aucun fichier .cs modifié"
+        echo "##vso[task.setvariable variable=ANALYZE_PASSED]true"
+        exit 0
+      fi
+
+      set +e
+      REPORT="$(REPORT_PATH)"
+
+      # Analyser chaque fichier modifié
+      # Codengine accepte un fichier ou un dossier ; on boucle sur les fichiers
+      TOTAL_VIOLATIONS=0
+      TOTAL_ERRORS=0
+      TOTAL_WARNINGS=0
+      ALL_VIOLATIONS="[]"
+
+      while IFS= read -r filepath; do
+        if [ ! -f "$filepath" ]; then
+          echo "Fichier introuvable (peut-être supprimé): $filepath"
+          continue
+        fi
+
+        TMP_REPORT="$(Agent.TempDirectory)/report_$(basename "$filepath").json"
+        dotnet "$(CODENGINE_DLL)" analyze "$filepath" -f json -o "$TMP_REPORT" 2>/dev/null
+
+        if [ -f "$TMP_REPORT" ]; then
+          FILE_ERRORS=$(jq '.summary.errors' "$TMP_REPORT")
+          FILE_WARNINGS=$(jq '.summary.warnings' "$TMP_REPORT")
+          FILE_VIOLATIONS=$(jq '.summary.totalViolations' "$TMP_REPORT")
+          TOTAL_ERRORS=$((TOTAL_ERRORS + FILE_ERRORS))
+          TOTAL_WARNINGS=$((TOTAL_WARNINGS + FILE_WARNINGS))
+          TOTAL_VIOLATIONS=$((TOTAL_VIOLATIONS + FILE_VIOLATIONS))
+
+          # Fusionner les violations
+          FILE_VIOLS=$(jq '.violations' "$TMP_REPORT")
+          ALL_VIOLATIONS=$(echo "$ALL_VIOLATIONS $FILE_VIOLS" | jq -s 'add')
+        fi
+      done < "$(CHANGED_FILES_PATH)"
+
+      # Sauvegarder le rapport consolidé
+      echo "{\"summary\":{\"totalViolations\":$TOTAL_VIOLATIONS,\"errors\":$TOTAL_ERRORS,\"warnings\":$TOTAL_WARNINGS,\"hasErrors\":$([ $TOTAL_ERRORS -gt 0 ] && echo true || echo false)},\"violations\":$ALL_VIOLATIONS}" \
+        | jq '.' > "$REPORT"
+
+      if [ "$TOTAL_ERRORS" -eq 0 ]; then
+        echo "##vso[task.setvariable variable=ANALYZE_ICON]✅"
+        echo "##vso[task.setvariable variable=ANALYZE_LABEL]OK — $TOTAL_VIOLATIONS violation(s) ($TOTAL_ERRORS erreur(s), $TOTAL_WARNINGS avertissement(s))"
+        echo "##vso[task.setvariable variable=ANALYZE_PASSED]true"
+      else
+        echo "##vso[task.setvariable variable=ANALYZE_ICON]❌"
+        echo "##vso[task.setvariable variable=ANALYZE_LABEL]$TOTAL_ERRORS erreur(s), $TOTAL_WARNINGS avertissement(s) — $TOTAL_VIOLATIONS violation(s) au total"
+        echo "##vso[task.setvariable variable=ANALYZE_PASSED]false"
+
+        jq -r '.violations[] | "- **\(.ruleId)** `\(.filePath | split("/")[-1]):\(.line)` — \(.message) [\(.severity)]"' \
+          "$REPORT" | head -20 > "$(Agent.TempDirectory)/violations.md"
+      fi
+    displayName: Codengine analyze (changed files only)
+    continueOnError: true
+
+  # ── Commentaire PR ─────────────────────────────────────────────────────────
+  - script: |
+      ANALYZE_OK="$(ANALYZE_PASSED)"
+
+      if [ "$ANALYZE_OK" = "true" ]; then
+        HEADER="## ✅ Codengine — OK"
+        SUMMARY="Aucune erreur détectée sur les fichiers modifiés par cette PR."
+      else
+        HEADER="## ❌ Codengine — Erreur(s) détectée(s)"
+        SUMMARY="Des erreurs bloquent le merge. Veuillez corriger les violations ci-dessous."
+      fi
+
+      COMMIT_SHORT=$(echo "$(Build.SourceVersion)" | cut -c1-7)
+      COUNT="$(CHANGED_CS_COUNT)"
+
+      COMMENT_FILE="$(Agent.TempDirectory)/pr-comment.md"
+      {
+        echo "$HEADER"
+        echo ""
+        echo "$SUMMARY"
+        echo ""
+        echo "| Contrôle | Résultat |"
+        echo "|----------|----------|"
+        echo "| 🔍 Codengine analyse ($COUNT fichier(s) .cs) | $(ANALYZE_ICON) $(ANALYZE_LABEL) |"
+        echo ""
+        echo "*Commit : \`$COMMIT_SHORT\` — Pipeline : [#$(Build.BuildNumber)]($(System.TeamFoundationCollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId))*"
+      } > "$COMMENT_FILE"
+
+      if [ -f "$(Agent.TempDirectory)/violations.md" ] && [ -s "$(Agent.TempDirectory)/violations.md" ]; then
+        {
+          echo ""
+          echo "<details>"
+          echo "<summary>Violations Codengine (cliquer pour développer)</summary>"
+          echo ""
+          cat "$(Agent.TempDirectory)/violations.md"
+          echo ""
+          echo "</details>"
+        } >> "$COMMENT_FILE"
+      fi
+
+      BODY=$(cat "$COMMENT_FILE")
+      PAYLOAD=$(jq -n --arg body "$BODY" \
+        '{"comments":[{"content":$body,"commentType":1}],"status":1}')
+
+      THREADS_URL="${SYSTEM_TEAMFOUNDATIONCOLLECTIONURI}${SYSTEM_TEAMPROJECTID}/_apis/git/repositories/${BUILD_REPOSITORY_ID}/pullRequests/${SYSTEM_PULLREQUEST_PULLREQUESTID}/threads?api-version=7.1"
+
+      HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$THREADS_URL" \
+        -H "Authorization: Bearer $SYSTEM_ACCESSTOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$PAYLOAD")
+
+      if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+        echo "Commentaire posté sur la PR (HTTP $HTTP_STATUS)"
+      else
+        echo "##vso[task.logissue type=warning]Impossible de poster le commentaire (HTTP $HTTP_STATUS)"
+      fi
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+    displayName: Post PR comment
+    condition: and(always(), ne(variables['System.PullRequest.PullRequestId'], ''))
+
+  # ── Fail si erreurs ────────────────────────────────────────────────────────
+  - script: |
+      [ "$(ANALYZE_PASSED)" != "true" ] && \
+        echo "##vso[task.logissue type=error]Codengine a détecté des erreurs sur les fichiers modifiés." && \
+        exit 1
+      echo "Analyse OK."
+    displayName: Fail pipeline if errors
+    condition: always()
