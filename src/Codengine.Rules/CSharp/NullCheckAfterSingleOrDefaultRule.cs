@@ -160,24 +160,21 @@ public class NullCheckAfterSingleOrDefaultRule : RuleBase
             && assignment.Left == usage;
     }
 
+    // ── Analyse de flux : protection par null check ──────────────────────────
+
     /// <summary>
     /// Remonte l'arbre syntaxique pour vérifier si l'usage est à l'intérieur
-    /// d'un if (variable != null) / if (variable is not null).
+    /// d'un if dont la condition garantit que la variable n'est pas null.
     /// </summary>
     private static bool IsInsideNullCheck(SyntaxNode node, string variableName)
     {
         var current = node.Parent;
         while (current != null)
         {
-            if (current is IfStatementSyntax ifStatement)
+            if (current is IfStatementSyntax ifStatement
+                && ConditionGuaranteesNotNull(ifStatement.Condition, variableName))
             {
-                var condition = ifStatement.Condition.ToString();
-                if (condition.Contains($"{variableName} != null") ||
-                    condition.Contains($"{variableName} is not null") ||
-                    condition.Contains($"null != {variableName}"))
-                {
-                    return true;
-                }
+                return true;
             }
             current = current.Parent;
         }
@@ -186,7 +183,7 @@ public class NullCheckAfterSingleOrDefaultRule : RuleBase
 
     /// <summary>
     /// Remonte les blocs parents pour vérifier si un guard clause
-    /// (if variable == null return/throw) précède l'usage dans le même scope ou un scope parent.
+    /// (if variable == null return/throw) précède l'usage.
     /// </summary>
     private static bool HasGuardClauseBefore(SyntaxNode usage, string variableName)
     {
@@ -197,7 +194,6 @@ public class NullCheckAfterSingleOrDefaultRule : RuleBase
             {
                 foreach (var statement in block.Statements)
                 {
-                    // Ne regarder que les statements AVANT le nœud courant
                     if (statement.SpanStart >= current.SpanStart)
                         break;
 
@@ -211,24 +207,147 @@ public class NullCheckAfterSingleOrDefaultRule : RuleBase
     }
 
     /// <summary>
-    /// Vérifie si un statement est un guard clause : if (var == null) { return/throw; }
+    /// Vérifie si un statement est un guard clause : if (condition-null) { return/throw; }
     /// </summary>
     private static bool IsNullGuardClause(StatementSyntax statement, string variableName)
     {
         if (statement is not IfStatementSyntax ifStatement)
             return false;
 
-        var condition = ifStatement.Condition.ToString();
-
-        bool checksForNull =
-            condition.Contains($"{variableName} == null") ||
-            condition.Contains($"{variableName} is null") ||
-            condition.Contains($"null == {variableName}");
-
-        if (!checksForNull)
+        if (!ConditionGuaranteesNull(ifStatement.Condition, variableName))
             return false;
 
-        var bodyText = ifStatement.Statement.ToString();
-        return bodyText.Contains("return") || bodyText.Contains("throw");
+        // Le body doit contenir return ou throw (DescendantNodesAndSelf pour le cas sans accolades)
+        return ifStatement.Statement.DescendantNodesAndSelf()
+            .Any(n => n is ReturnStatementSyntax or ThrowStatementSyntax or ThrowExpressionSyntax);
+    }
+
+    // ── Analyse AST des conditions ────────────────────────────────────────────
+
+    /// <summary>
+    /// La condition garantit-elle que var N'EST PAS null ?
+    /// Utilisé pour les wrapping checks : if (cond) { usage safe ici }
+    /// - var != null → OUI
+    /// - var is not null → OUI
+    /// - !string.IsNullOrEmpty(var) → OUI
+    /// - var != null &amp;&amp; x → OUI (les deux doivent être vraies)
+    /// - var != null || x → NON (on peut entrer avec var == null)
+    /// </summary>
+    private static bool ConditionGuaranteesNotNull(ExpressionSyntax condition, string variableName)
+    {
+        switch (condition)
+        {
+            // (expr) → unwrap parenthèses
+            case ParenthesizedExpressionSyntax paren:
+                return ConditionGuaranteesNotNull(paren.Expression, variableName);
+
+            // a && b → OK si l'un des côtés garantit not-null
+            case BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.LogicalAndExpression):
+                return ConditionGuaranteesNotNull(binary.Left, variableName)
+                    || ConditionGuaranteesNotNull(binary.Right, variableName);
+
+            // a || b → NON (peut entrer avec var == null)
+            case BinaryExpressionSyntax when condition.IsKind(SyntaxKind.LogicalOrExpression):
+                return false;
+
+            // var != null / null != var
+            case BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.NotEqualsExpression):
+                return IsNullComparison(binary, variableName);
+
+            // var is not null
+            case IsPatternExpressionSyntax { Pattern: UnaryPatternSyntax { Pattern: ConstantPatternSyntax cp } } isExpr
+                when cp.Expression.IsKind(SyntaxKind.NullLiteralExpression)
+                  && IsIdentifier(isExpr.Expression, variableName):
+                return true;
+
+            // !string.IsNullOrEmpty(var) / !string.IsNullOrWhiteSpace(var)
+            case PrefixUnaryExpressionSyntax prefix when prefix.IsKind(SyntaxKind.LogicalNotExpression):
+                return IsNullOrEmptyCall(prefix.Operand, variableName);
+
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// La condition garantit-elle que var EST null (ou vide) ?
+    /// Utilisé pour les guard clauses : if (cond) { return/throw; } → après, var est safe
+    /// - var == null → OUI
+    /// - var is null → OUI
+    /// - string.IsNullOrEmpty(var) → OUI
+    /// - var == null || x → OUI (retourne si null OU si x)
+    /// - var == null &amp;&amp; x → NON (ne retourne que si les deux sont vrais)
+    /// </summary>
+    private static bool ConditionGuaranteesNull(ExpressionSyntax condition, string variableName)
+    {
+        switch (condition)
+        {
+            case ParenthesizedExpressionSyntax paren:
+                return ConditionGuaranteesNull(paren.Expression, variableName);
+
+            // a || b → OK si l'un des côtés vérifie null (retourne dès que null)
+            case BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.LogicalOrExpression):
+                return ConditionGuaranteesNull(binary.Left, variableName)
+                    || ConditionGuaranteesNull(binary.Right, variableName);
+
+            // a && b → NON (ne retourne que si les DEUX sont vrais → pas garanti)
+            case BinaryExpressionSyntax when condition.IsKind(SyntaxKind.LogicalAndExpression):
+                return false;
+
+            // var == null / null == var
+            case BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.EqualsExpression):
+                return IsNullComparison(binary, variableName);
+
+            // var is null
+            case IsPatternExpressionSyntax { Pattern: ConstantPatternSyntax cp } isExpr
+                when cp.Expression.IsKind(SyntaxKind.NullLiteralExpression)
+                  && IsIdentifier(isExpr.Expression, variableName):
+                return true;
+
+            // string.IsNullOrEmpty(var) / string.IsNullOrWhiteSpace(var) (sans !)
+            case InvocationExpressionSyntax invocation:
+                return IsNullOrEmptyCall(invocation, variableName);
+
+            default:
+                return false;
+        }
+    }
+
+    // ── Helpers AST atomiques ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Vérifie si l'expression binaire compare la variable avec null.
+    /// Gère var==null, null==var, var !=null, etc. (pas de dépendance aux espaces).
+    /// </summary>
+    private static bool IsNullComparison(BinaryExpressionSyntax binary, string variableName)
+    {
+        return (IsIdentifier(binary.Left, variableName) && binary.Right.IsKind(SyntaxKind.NullLiteralExpression))
+            || (IsIdentifier(binary.Right, variableName) && binary.Left.IsKind(SyntaxKind.NullLiteralExpression));
+    }
+
+    private static bool IsIdentifier(ExpressionSyntax expr, string name)
+    {
+        return expr is IdentifierNameSyntax id && id.Identifier.Text == name;
+    }
+
+    /// <summary>
+    /// Vérifie si l'expression est un appel string.IsNullOrEmpty(var) ou string.IsNullOrWhiteSpace(var).
+    /// </summary>
+    private static bool IsNullOrEmptyCall(ExpressionSyntax expression, string variableName)
+    {
+        if (expression is not InvocationExpressionSyntax invocation)
+            return false;
+
+        var methodName = invocation.Expression switch
+        {
+            MemberAccessExpressionSyntax ma => ma.Name.Identifier.Text,
+            _ => null
+        };
+
+        if (methodName is not ("IsNullOrEmpty" or "IsNullOrWhiteSpace"))
+            return false;
+
+        var args = invocation.ArgumentList.Arguments;
+        return args.Count == 1 && IsIdentifier(args[0].Expression, variableName);
     }
 }
