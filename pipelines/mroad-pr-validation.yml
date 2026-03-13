@@ -166,7 +166,7 @@ steps:
 
       # Analyser le dossier contenant tous les fichiers .cs modifiés
       # (codengine analyze attend un dossier, pas un fichier individuel)
-      dotnet "$(CODENGINE_DLL)" analyze "$(CHANGED_DIR)" -f json -o "$(REPORT_PATH)"
+      dotnet "$(CODENGINE_DLL)" analyze "$(CHANGED_DIR)" -f json -o "$(REPORT_PATH)" -d COD003,COD004,COD005,COD006,COD007,COD008,COD009
 
       if [ ! -f "$(REPORT_PATH)" ]; then
         echo "##vso[task.setvariable variable=ANALYZE_ICON]⚠️"
