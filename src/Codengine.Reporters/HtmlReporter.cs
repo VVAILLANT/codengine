@@ -183,6 +183,7 @@ public class HtmlReporter : IReporter
         sb.AppendLine("        <p>Généré par Codengine</p>");
         sb.AppendLine("    </footer>");
 
+        sb.AppendLine("    <div id=\"toast\" class=\"toast\"></div>");
         sb.AppendLine("    <script>");
         sb.AppendLine("        function toggleFile(id, header) {");
         sb.AppendLine("            var el = document.getElementById(id);");
@@ -191,9 +192,16 @@ public class HtmlReporter : IReporter
         sb.AppendLine("            el.style.display = open ? 'none' : 'block';");
         sb.AppendLine("            icon.textContent = open ? '▶' : '▼';");
         sb.AppendLine("        }");
+        sb.AppendLine("        function showToast(msg) {");
+        sb.AppendLine("            var t = document.getElementById('toast');");
+        sb.AppendLine("            t.textContent = msg;");
+        sb.AppendLine("            t.className = 'toast show';");
+        sb.AppendLine("            setTimeout(function() { t.className = 'toast'; }, 2000);");
+        sb.AppendLine("        }");
         sb.AppendLine("        document.querySelectorAll('.copy-btn').forEach(function(btn) {");
         sb.AppendLine("            btn.addEventListener('click', function(e) {");
         sb.AppendLine("                e.stopPropagation();");
+        sb.AppendLine("                e.preventDefault();");
         sb.AppendLine("                var text = btn.getAttribute('data-copy');");
         sb.AppendLine("                var ta = document.createElement('textarea');");
         sb.AppendLine("                ta.value = text;");
@@ -206,8 +214,10 @@ public class HtmlReporter : IReporter
         sb.AppendLine("                document.body.removeChild(ta);");
         sb.AppendLine("                btn.classList.add('copied');");
         sb.AppendLine("                setTimeout(function() { btn.classList.remove('copied'); }, 1500);");
+        sb.AppendLine("                var short = text.length > 50 ? text.substring(0, 50) + '...' : text;");
+        sb.AppendLine("                showToast('Copié : ' + short);");
         sb.AppendLine("            });");
-        sb.AppendLine("        }");
+        sb.AppendLine("        });");
         sb.AppendLine("    </script>");
 
         sb.AppendLine("</body>");
@@ -279,6 +289,8 @@ public class HtmlReporter : IReporter
         .success { text-align: center; padding: 3rem; }
         .success-message { font-size: 1.5rem; color: #28a745; }
         footer { text-align: center; padding: 2rem; color: #666; font-size: 0.9rem; }
+        .toast { position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%) translateY(100px); background: #333; color: white; padding: 0.75rem 1.5rem; border-radius: 8px; font-size: 0.9rem; z-index: 9999; opacity: 0; transition: opacity 0.3s, transform 0.3s; pointer-events: none; white-space: nowrap; max-width: 90vw; overflow: hidden; text-overflow: ellipsis; }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
         @media (max-width: 768px) { .stats { flex-direction: column; } .stat { min-width: 100%; } }
         ";
     }
