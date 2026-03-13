@@ -198,22 +198,35 @@ public class NullCheckAfterSingleOrDefaultRule : RuleBase
                 var fullExpression = memberAccess.ToString();
                 if (!fullExpression.StartsWith($"{variableName}?."))
                 {
-                    return true;
-                }
-            }
+                    // Vérifier si l'usage est protégé par un if (variable != null) ancêtre
+                    if (IsInsideNullCheck(identifier, variableName))
+                        continue;
 
-            // Vérifier si c'est un appel de méthode sur la variable
-            if (identifier.Parent is MemberAccessExpressionSyntax methodAccess &&
-                methodAccess.Parent is InvocationExpressionSyntax)
-            {
-                var fullExpression = methodAccess.ToString();
-                if (!fullExpression.StartsWith($"{variableName}?."))
-                {
                     return true;
                 }
             }
         }
 
+        return false;
+    }
+
+    private static bool IsInsideNullCheck(SyntaxNode node, string variableName)
+    {
+        var current = node.Parent;
+        while (current != null)
+        {
+            if (current is IfStatementSyntax ifStatement)
+            {
+                var condition = ifStatement.Condition.ToString();
+                if (condition.Contains($"{variableName} != null") ||
+                    condition.Contains($"{variableName} is not null") ||
+                    condition.Contains($"null != {variableName}"))
+                {
+                    return true;
+                }
+            }
+            current = current.Parent;
+        }
         return false;
     }
 }

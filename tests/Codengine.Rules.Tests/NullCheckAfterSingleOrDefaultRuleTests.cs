@@ -99,6 +99,35 @@ public class Test
         Assert.NotEmpty(violations);
     }
 
+    [Fact]
+    public void Should_Not_Detect_When_Usage_Inside_NullCheck_In_Nested_Block()
+    {
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Test
+{
+    public void Method()
+    {
+        var list = new List<string> { ""a"", ""b"" };
+        var item = list.SingleOrDefault(x => x == ""a"");
+
+        foreach (var x in list)
+        {
+            if (item != null)
+            {
+                var length = item.Length;
+            }
+        }
+    }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Empty(violations);
+    }
+
     private List<Violation> AnalyzeCode(string code)
     {
         var tree = CSharpSyntaxTree.ParseText(code);
