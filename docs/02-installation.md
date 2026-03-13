@@ -2,7 +2,7 @@
 
 ## Prérequis
 
-- **.NET SDK 8.0 ou supérieur** (recommandé : .NET 9)
+- **.NET SDK 9.0** ([télécharger](https://dotnet.microsoft.com/download/dotnet/9.0))
 - **Windows, Linux ou macOS**
 
 ### Installer .NET SDK
@@ -24,74 +24,45 @@ chmod +x dotnet-install.sh
 brew install dotnet-sdk
 ```
 
+---
+
 ## Installation de Codengine
 
-### Option 1 : Depuis les sources
+Codengine s'installe comme **outil global .NET**, disponible depuis n'importe quel répertoire.
+
+**1. Cloner le repo et builder**
 
 ```bash
-# Cloner
-git clone <url-du-repo>
+git clone https://github.com/VVAILLANT/codengine.git
 cd codengine
-
-# Restaurer les dépendances
-dotnet restore
-
-# Builder
-dotnet build -c Release
-
-# Publier un exécutable autonome
-dotnet publish src/Codengine.Cli -c Release -o ./publish
-```
-
-L'exécutable sera dans `./publish/Codengine.Cli.exe` (Windows) ou `./publish/Codengine.Cli` (Linux/macOS).
-
-### Option 2 : Comme outil global .NET (recommandé)
-
-```bash
-# Packager
 dotnet pack src/Codengine.Cli -o src/Codengine.Cli/nupkg
-
-# Installer globalement
-dotnet tool install --global --add-source src/Codengine.Cli/nupkg Codengine.Cli
-
-# Utilisation depuis n'importe où
-codengine analyze ./src
 ```
 
-## Vérification de l'installation
+**2. Installer globalement**
 
 ```bash
-# Lister les règles disponibles
+dotnet tool install --global --add-source src/Codengine.Cli/nupkg Codengine.Cli
+```
+
+**3. Vérifier l'installation**
+
+```bash
 codengine list-rules
-
-# Ou depuis les sources sans installation
-dotnet run --project src/Codengine.Cli -- --version
 ```
 
-## Structure des fichiers installés
-
-```
-codengine/
-├── Codengine.Cli.exe          # Exécutable principal
-├── Codengine.Cli.dll          # Assembly principal
-├── Codengine.Core.dll         # Noyau
-├── Codengine.Rules.dll        # Règles d'analyse
-├── Codengine.Connectors.dll   # Connecteurs (Oracle)
-├── Codengine.Reporters.dll    # Reporters (Console, JSON, HTML)
-├── Microsoft.CodeAnalysis.*.dll  # Roslyn (analyse C#)
-└── Oracle.ManagedDataAccess.dll  # Driver Oracle
-```
+---
 
 ## Mise à jour
 
 ```bash
-# Depuis les sources
+cd codengine
 git pull
-
-# Re-packager et mettre à jour l'outil global
-dotnet pack src/Codengine.Cli -o src/Codengine.Cli/nupkg
-dotnet tool update --global --add-source src/Codengine.Cli/nupkg Codengine.Cli
+bash scripts/publish-tool.sh
 ```
+
+Le script bumpe automatiquement la version, repackage et réinstalle l'outil.
+
+---
 
 ## Désinstallation
 
