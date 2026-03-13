@@ -4,6 +4,12 @@ pr:
   branches:
     include:
       - develop
+  paths:
+    include:
+      - "**/*.cs"
+    exclude:
+      - "**/*.yml"
+      - "**/*.yaml"
 
 name: $(Date:yyyyMMdd).$(Rev:r) • PR $(System.PullRequest.PullRequestId) (codengine)
 appendCommitMessageToRunName: false
