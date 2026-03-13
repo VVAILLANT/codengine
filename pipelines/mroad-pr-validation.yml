@@ -38,8 +38,9 @@ steps:
   - script: |
       curl -sf https://raw.githubusercontent.com/VVAILLANT/codengine/master/src/Codengine.Cli/Codengine.Cli.csproj \
         -o "$(Agent.TempDirectory)/Codengine.Cli.csproj"
-      echo "Version Codengine :"
-      grep -o '<Version>[^<]*</Version>' "$(Agent.TempDirectory)/Codengine.Cli.csproj"
+      VERSION=$(grep -o '<Version>[^<]*</Version>' "$(Agent.TempDirectory)/Codengine.Cli.csproj" | grep -o '[0-9][^<]*')
+      echo "Version Codengine : $VERSION"
+      echo "##vso[task.setvariable variable=CODENGINE_VERSION]$VERSION"
     displayName: Fetch Codengine version
 
   # ── Cache NuGet Codengine ──────────────────────────────────────────────────
@@ -224,7 +225,7 @@ steps:
         echo "|----------|----------|"
         echo "| 🔍 Codengine ($(CHANGED_CS_COUNT) fichier(s) .cs) | $(ANALYZE_ICON) $(ANALYZE_LABEL) |"
         echo ""
-        echo "*Commit : \`$COMMIT_SHORT\` — [Voir le rapport]($(System.TeamFoundationCollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId))*"
+        echo "*Commit : \`$COMMIT_SHORT\` — [Voir le rapport]($(System.TeamFoundationCollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)) — Codengine v$(CODENGINE_VERSION)*"
       } > "$COMMENT_FILE"
 
       if [ -f "$(Agent.TempDirectory)/violations.md" ] && [ -s "$(Agent.TempDirectory)/violations.md" ]; then
