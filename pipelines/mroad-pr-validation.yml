@@ -157,38 +157,21 @@ steps:
       fi
 
       set +e
-      TOTAL_VIOLATIONS=0
-      TOTAL_ERRORS=0
-      TOTAL_WARNINGS=0
-      ALL_VIOLATIONS="[]"
 
-      # Analyser chaque fichier .cs téléchargé
-      # Note: process substitution < <(...) pour éviter le sous-shell du pipe
-      # qui empêcherait les variables de remonter après la boucle
-      while IFS= read -r filepath; do
-        TMP_REPORT="$(Agent.TempDirectory)/report_$(echo "$filepath" | md5sum | cut -c1-8).json"
-        dotnet "$(CODENGINE_DLL)" analyze "$filepath" -f json -o "$TMP_REPORT" 2>/dev/null
+      # Analyser le dossier contenant tous les fichiers .cs modifiés
+      # (codengine analyze attend un dossier, pas un fichier individuel)
+      dotnet "$(CODENGINE_DLL)" analyze "$(CHANGED_DIR)" -f json -o "$(REPORT_PATH)"
 
-        if [ -f "$TMP_REPORT" ]; then
-          FILE_ERRORS=$(jq '.summary.errors' "$TMP_REPORT")
-          FILE_WARNINGS=$(jq '.summary.warnings' "$TMP_REPORT")
-          FILE_VIOLATIONS=$(jq '.summary.totalViolations' "$TMP_REPORT")
-          TOTAL_ERRORS=$((TOTAL_ERRORS + FILE_ERRORS))
-          TOTAL_WARNINGS=$((TOTAL_WARNINGS + FILE_WARNINGS))
-          TOTAL_VIOLATIONS=$((TOTAL_VIOLATIONS + FILE_VIOLATIONS))
-          FILE_VIOLS=$(jq '.violations' "$TMP_REPORT")
-          ALL_VIOLATIONS=$(echo "$ALL_VIOLATIONS $FILE_VIOLS" | jq -s 'add')
-        fi
-      done < <(find "$(CHANGED_DIR)" -name "*.cs")
+      if [ ! -f "$(REPORT_PATH)" ]; then
+        echo "##vso[task.setvariable variable=ANALYZE_ICON]⚠️"
+        echo "##vso[task.setvariable variable=ANALYZE_LABEL]Rapport non généré"
+        echo "##vso[task.setvariable variable=ANALYZE_PASSED]false"
+        exit 0
+      fi
 
-      # Rapport consolidé
-      jq -n \
-        --argjson total $TOTAL_VIOLATIONS \
-        --argjson errors $TOTAL_ERRORS \
-        --argjson warnings $TOTAL_WARNINGS \
-        --argjson violations "$ALL_VIOLATIONS" \
-        '{summary:{totalViolations:$total,errors:$errors,warnings:$warnings,hasErrors:($errors > 0)},violations:$violations}' \
-        > "$(REPORT_PATH)"
+      TOTAL_VIOLATIONS=$(jq '.summary.totalViolations' "$(REPORT_PATH)")
+      TOTAL_ERRORS=$(jq '.summary.errors' "$(REPORT_PATH)")
+      TOTAL_WARNINGS=$(jq '.summary.warnings' "$(REPORT_PATH)")
 
       if [ "$TOTAL_ERRORS" -eq 0 ]; then
         echo "##vso[task.setvariable variable=ANALYZE_ICON]✅"
