@@ -98,7 +98,7 @@ codengine init                             # Créer config
 | ID | Nom | Catégorie | Sévérité | Auto-fix |
 |----|-----|-----------|----------|----------|
 | COD001 | NullCheckAfterSingleOrDefault | NullSafety | Error | Oui |
-| COD002 | EmptyListBeforeContains | NullSafety | Error | Non |
+| COD002 | EmptyListBeforeContains | NullSafety | Error | Non | Uniquement sur Query<>().Where() ORM — liste vide peut retourner toutes les lignes |
 | COD003 | AsyncMethodNaming | Naming | Warning | Oui |
 | COD004 | DisposePattern | Resources | Warning | Non |
 | COD005 | EmptyCatchBlock | ErrorHandling | Error | Oui |

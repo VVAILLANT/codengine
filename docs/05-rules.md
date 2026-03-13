@@ -64,17 +64,26 @@ var name = user.Name;
 
 ### Description
 
-Vérifie qu'avant d'utiliser `liste.Contains()` dans un `Where()` ou une requête LINQ, la liste est vérifiée pour ne pas être `null` ou vide.
+Vérifie qu'avant d'utiliser `liste.Contains()` dans une requête ORM (`Query<>().Where()`, `Table<>()`, `Set<>()`, etc.), la liste est vérifiée pour ne pas être `null` ou vide.
+
+> **Pourquoi uniquement les requêtes ORM ?**
+> Une liste vide passée à `Contains()` dans une requête ORM peut annuler silencieusement la clause `WHERE`, ce qui retourne **toutes les lignes** de la table (potentiellement des dizaines de millions d'enregistrements). Ce comportement est spécifique à certains ORM et n'existe pas avec LINQ to Objects en mémoire.
+
+### Périmètre
+
+Cette règle se déclenche uniquement sur les chaînes démarrant par :
+`Query<>()`, `Table<>()`, `Set<>()`, `GetTable()`, `From()`
+
+Elle **ne s'applique pas** aux collections LINQ en mémoire (`list.Where(...)`, `GetItems().Where(...)`, etc.).
 
 ### Problème
 
 ```csharp
-// VIOLATION : Liste potentiellement null ou vide
+// VIOLATION : Liste potentiellement vide dans une requête ORM
 public IEnumerable<User> GetUsers(List<int> ids)
 {
-    return context.Users.Where(u => ids.Contains(u.Id));
-    // Si ids est null -> NullReferenceException
-    // Si ids est vide -> Requête SQL avec IN () vide -> erreur ou performances
+    return Query<User>().Where(u => ids.Contains(u.Id));
+    // Si ids est vide -> la clause WHERE est annulée -> toutes les lignes retournées !
 }
 ```
 
@@ -88,7 +97,7 @@ public IEnumerable<User> GetUsers(List<int> ids)
     {
         return Enumerable.Empty<User>();
     }
-    return context.Users.Where(u => ids.Contains(u.Id));
+    return Query<User>().Where(u => ids.Contains(u.Id));
 }
 
 // CORRECT : Avec guard clause
@@ -97,7 +106,7 @@ public IEnumerable<User> GetUsers(List<int> ids)
     ArgumentNullException.ThrowIfNull(ids);
     if (ids.Count == 0) return Enumerable.Empty<User>();
 
-    return context.Users.Where(u => ids.Contains(u.Id));
+    return Query<User>().Where(u => ids.Contains(u.Id));
 }
 ```
 
