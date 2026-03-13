@@ -64,6 +64,92 @@ var name = user.Name;
 var user = users.FirstOrDefault(u => u.Id == id);
 if (user is null) return;
 var name = user.Name;
+
+// CORRECT : Ternaire avec null check
+var user = users.FirstOrDefault(u => u.Id == id);
+var name = user != null ? user.Name : "Inconnu";
+// Forme inversée reconnue aussi :
+var name = user == null ? "Inconnu" : user.Name;
+
+// CORRECT : Guard clause composé (null check en premier dans le ||)
+var user = users.FirstOrDefault(u => u.Id == id);
+if (user == null || !user.IsActive || string.IsNullOrEmpty(user.Email))
+    return;
+// user est garanti non-null ici grâce au court-circuit de ||
+SendEmail(user.Email);
+```
+
+### Cas particuliers
+
+#### Guard clause composé
+
+La règle reconnaît les guard clauses avec plusieurs conditions reliées par `||`, **à condition que le null check soit en premier** :
+
+```csharp
+// CORRECT : user == null est évalué en premier → court-circuit protège user.IsActive
+if (user == null || !user.IsActive || string.IsNullOrEmpty(user.Email))
+    return;
+
+// VIOLATION : user.IsActive est évalué AVANT user == null → NullReferenceException possible
+if (!user.IsActive || user == null)
+    return;
+```
+
+#### Guard clause avec `continue` ou `break`
+
+Dans une boucle, `continue` et `break` sont reconnus comme sorties valides du guard clause :
+
+```csharp
+foreach (var item in list)
+{
+    var entity = entities.FirstOrDefault(e => e.Id == item.Id);
+    if (entity == null) continue;   // CORRECT
+    // ou
+    if (entity == null) break;      // CORRECT
+    // ou avec accolades
+    if (entity == null)
+    {
+        errorCount++;
+        continue;                   // CORRECT
+    }
+    entity.Name = item.Name;        // Pas de violation
+}
+```
+
+#### Bloc `else` après vérification null
+
+Si le bloc `if` garantit que la variable est null (via `throw` ou `return`), le bloc `else` est considéré safe :
+
+```csharp
+var entity = list.FirstOrDefault(e => e.Code == code);
+if (entity == null)
+{
+    throw new ArgumentException("Entité introuvable");
+}
+else
+{
+    entity.Name = "Valeur";   // Pas de violation — else garantit non-null
+    entity.Code = "NEW";
+}
+```
+
+#### Variable réutilisée comme itérateur `foreach`
+
+Si un `foreach` ultérieur déclare une variable de boucle portant le même nom, la règle distingue les deux variables et ne signale pas de violation sur la variable de boucle :
+
+```csharp
+foreach (var key in keys)
+{
+    var item = list.FirstOrDefault(x => x.Id == key.Id);
+    if (item != null)
+        Process(item);
+}
+
+// item ici est une variable de boucle distincte — pas de faux positif COD001
+foreach (Item item in otherList)
+{
+    Console.WriteLine(item.Name);
+}
 ```
 
 ---

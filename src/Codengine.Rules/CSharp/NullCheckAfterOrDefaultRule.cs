@@ -95,6 +95,10 @@ public class NullCheckAfterOrDefaultRule : RuleBase
             if (IsReassignment(usage))
                 return null;
 
+            // Redéclaration comme variable de boucle foreach → variable originale hors scope, on arrête
+            if (IsShadowedByForeach(usage, variableName))
+                return null;
+
             // Seuls les accès membres directs (item.Foo) sont dangereux
             // item?.Foo → ConditionalAccessExpression (pas MemberAccess) → ignoré
             // item ?? x → BinaryExpression → ignoré
@@ -109,6 +113,16 @@ public class NullCheckAfterOrDefaultRule : RuleBase
 
             // Protégé par un guard clause (if item == null return/throw) avant ?
             if (HasGuardClauseBefore(usage, variableName))
+                continue;
+
+            // Dans la condition d'un guard clause : if (item == null || !item.Prop || ...) return;
+            // Les accès membres sont sûrs grâce au court-circuit de ||
+            if (IsInsideGuardClauseCondition(usage, variableName))
+                continue;
+
+            // Protégé par un ternaire : item != null ? item.Prop : default
+            // ou : item == null ? default : item.Prop
+            if (IsInsideConditionalNotNullBranch(usage, variableName))
                 continue;
 
             // Première utilisation non protégée trouvée
@@ -215,6 +229,156 @@ public class NullCheckAfterOrDefaultRule : RuleBase
             && assignment.Left == usage;
     }
 
+    /// <summary>
+    /// Vérifie si l'usage est à l'intérieur du body d'un foreach dont la variable de boucle
+    /// porte le même nom que la variable originale. Dans ce cas, il s'agit d'une variable
+    /// différente redéclarée dans un scope distinct — la variable originale n'est plus accessible.
+    /// Ex: foreach (Item evtPosition in list) { evtPosition.Prop → autre variable, pas un faux positif }
+    /// </summary>
+    private static bool IsShadowedByForeach(IdentifierNameSyntax usage, string variableName)
+    {
+        var current = (SyntaxNode)usage;
+        while (current != null)
+        {
+            if (current.Parent is ForEachStatementSyntax forEach
+                && forEach.Identifier.Text == variableName
+                && forEach.Statement.Span.Contains(usage.Span))
+                return true;
+
+            if (current is BaseMethodDeclarationSyntax or LocalFunctionStatementSyntax)
+                break;
+
+            current = current.Parent;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Vérifie si l'usage est dans la condition d'un if statement qui est lui-même un guard clause,
+    /// ET que le null check apparaît avant l'accès membre dans l'ordre d'évaluation de ||.
+    /// Ex safe   : if (user == null || !user.Prop || ...) return;  → null check en premier
+    /// Ex unsafe : if (!user.Prop || user == null) return;          → accès membre en premier → violation
+    /// </summary>
+    private static bool IsInsideGuardClauseCondition(SyntaxNode node, string variableName)
+    {
+        var current = node.Parent;
+        SyntaxNode? previous = node;
+        while (current != null)
+        {
+            if (current is IfStatementSyntax ifStatement)
+            {
+                if (previous != null
+                    && ifStatement.Condition.Span.Contains(previous.Span)
+                    && IsNullGuardClause(ifStatement, variableName)
+                    && NullCheckPrecedesMemberAccess(ifStatement.Condition, node, variableName))
+                {
+                    return true;
+                }
+                break;
+            }
+
+            if (current is BlockSyntax)
+                break;
+
+            previous = current;
+            current = current.Parent;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Parcourt les opérandes d'une chaîne || de gauche à droite et vérifie
+    /// qu'un null check pour la variable précède l'accès membre (memberAccessNode).
+    /// </summary>
+    private static bool NullCheckPrecedesMemberAccess(
+        ExpressionSyntax condition, SyntaxNode memberAccessNode, string variableName)
+    {
+        var operands = new List<ExpressionSyntax>();
+        CollectOrOperands(condition, operands);
+
+        foreach (var operand in operands)
+        {
+            if (ContainsNullCheckForVariable(operand, variableName))
+                return true;
+
+            if (operand.Span.Contains(memberAccessNode.Span))
+                return false; // accès membre atteint sans null check avant
+        }
+
+        return false;
+    }
+
+    private static void CollectOrOperands(ExpressionSyntax expr, List<ExpressionSyntax> operands)
+    {
+        switch (expr)
+        {
+            case BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.LogicalOrExpression):
+                CollectOrOperands(binary.Left, operands);
+                CollectOrOperands(binary.Right, operands);
+                break;
+            case ParenthesizedExpressionSyntax paren:
+                CollectOrOperands(paren.Expression, operands);
+                break;
+            default:
+                operands.Add(expr);
+                break;
+        }
+    }
+
+    private static bool ContainsNullCheckForVariable(ExpressionSyntax expr, string variableName)
+    {
+        // variableName == null / null == variableName
+        if (expr is BinaryExpressionSyntax bin
+            && bin.IsKind(SyntaxKind.EqualsExpression)
+            && IsNullComparison(bin, variableName))
+            return true;
+
+        // variableName is null
+        if (expr is IsPatternExpressionSyntax { Pattern: ConstantPatternSyntax cp } isExpr
+            && cp.Expression.IsKind(SyntaxKind.NullLiteralExpression)
+            && IsIdentifier(isExpr.Expression, variableName))
+            return true;
+
+        // string.IsNullOrEmpty(variableName) / string.IsNullOrWhiteSpace(variableName)
+        if (expr is InvocationExpressionSyntax invocation)
+            return IsNullOrEmptyCall(invocation, variableName);
+
+        return false;
+    }
+
+    /// <summary>
+    /// Vérifie si l'usage est dans la branche safe d'un opérateur ternaire (? :).
+    /// - item != null ? item.Prop : default → WhenTrue est safe
+    /// - item == null ? default : item.Prop → WhenFalse est safe
+    /// </summary>
+    private static bool IsInsideConditionalNotNullBranch(SyntaxNode node, string variableName)
+    {
+        var current = node.Parent;
+        while (current != null)
+        {
+            if (current is ConditionalExpressionSyntax conditional)
+            {
+                // item != null ? [item.Prop] : default
+                if (conditional.WhenTrue.Span.Contains(node.Span)
+                    && ConditionGuaranteesNotNull(conditional.Condition, variableName))
+                    return true;
+
+                // item == null ? default : [item.Prop]
+                if (conditional.WhenFalse.Span.Contains(node.Span)
+                    && ConditionGuaranteesNull(conditional.Condition, variableName))
+                    return true;
+
+                break;
+            }
+
+            if (current is StatementSyntax)
+                break;
+
+            current = current.Parent;
+        }
+        return false;
+    }
+
     // ── Analyse de flux : protection par null check ──────────────────────────
 
     /// <summary>
@@ -226,10 +390,18 @@ public class NullCheckAfterOrDefaultRule : RuleBase
         var current = node.Parent;
         while (current != null)
         {
-            if (current is IfStatementSyntax ifStatement
-                && ConditionGuaranteesNotNull(ifStatement.Condition, variableName))
+            if (current is IfStatementSyntax ifStatement)
             {
-                return true;
+                // if (var != null) { ... usage ... }
+                if (ConditionGuaranteesNotNull(ifStatement.Condition, variableName))
+                    return true;
+
+                // if (var == null) { throw/return; } else { ... usage ... }
+                // Dans le else, la variable est garantie non-null
+                if (ConditionGuaranteesNull(ifStatement.Condition, variableName)
+                    && ifStatement.Else != null
+                    && ifStatement.Else.Span.Contains(node.Span))
+                    return true;
             }
             current = current.Parent;
         }
@@ -272,9 +444,10 @@ public class NullCheckAfterOrDefaultRule : RuleBase
         if (!ConditionGuaranteesNull(ifStatement.Condition, variableName))
             return false;
 
-        // Le body doit contenir return ou throw (DescendantNodesAndSelf pour le cas sans accolades)
+        // Le body doit contenir return, throw, continue ou break (DescendantNodesAndSelf pour le cas sans accolades)
         return ifStatement.Statement.DescendantNodesAndSelf()
-            .Any(n => n is ReturnStatementSyntax or ThrowStatementSyntax or ThrowExpressionSyntax);
+            .Any(n => n is ReturnStatementSyntax or ThrowStatementSyntax or ThrowExpressionSyntax
+                        or ContinueStatementSyntax or BreakStatementSyntax);
     }
 
     // ── Analyse AST des conditions ────────────────────────────────────────────

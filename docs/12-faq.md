@@ -23,7 +23,11 @@ SonarQube est plus complet mais plus lourd à déployer.
 
 #### Q: Codengine modifie-t-il mon code ?
 
-**R:** Seulement avec la commande `fix`. La commande `analyze` est en lecture seule.
+**R:** Dans deux cas :
+- La commande `fix` applique des corrections automatiques.
+- La commande `analyze --tag` ajoute des commentaires `// codengine[RULE]` en fin de ligne sur les violations. Utilisez `analyze --untag` pour les retirer.
+
+La commande `analyze` sans ces options est en lecture seule.
 
 ---
 
@@ -118,9 +122,31 @@ codengine analyze ./src -d COD006,COD007
 #### Q: Pourquoi COD001 ne détecte pas mon cas ?
 
 **R:** La règle cherche des patterns spécifiques. Vérifiez :
-- Le code utilise bien `SingleOrDefault()` ou `FirstOrDefault()`
+- Le code utilise bien `SingleOrDefault()`, `FirstOrDefault()`, `LastOrDefault()` ou `ElementAtOrDefault()`
 - Le résultat est stocké dans une variable locale
-- Il y a une utilisation après sans null check
+- Il y a un accès membre (`variable.Propriété`) après sans null check
+
+#### Q: COD001 signale une violation alors que j'ai un null check
+
+**R:** Vérifiez l'ordre des conditions dans votre guard clause. Le null check doit être **en premier** dans un `||` pour que la règle le reconnaisse comme protecteur :
+
+```csharp
+// CORRECT — pas de violation
+if (user == null || !user.IsActive) return;
+
+// VIOLATION détectée — user.IsActive évalué avant user == null (risque NPE)
+if (!user.IsActive || user == null) return;
+```
+
+Les patterns suivants sont également reconnus comme protecteurs :
+
+- **Guard avec `continue`/`break`** : `if (item == null) continue;` dans une boucle
+- **Bloc `else`** : `if (item == null) { throw ...; } else { item.Prop → safe }`
+- **Ternaire** : `item != null ? item.Prop : default`
+
+#### Q: COD001 signale une violation sur une variable de boucle `foreach`
+
+**R:** Cela peut arriver si une variable issue de `FirstOrDefault()` et une variable de boucle `foreach` portent le même nom dans la même méthode. La règle distingue désormais ces deux cas — mettez à jour vers la dernière version si le faux positif persiste.
 
 ---
 

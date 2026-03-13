@@ -86,6 +86,8 @@ codengine analyze ./src                    # Analyser
 codengine analyze ./src -f html -o r.html  # Rapport HTML
 codengine analyze ./src -d COD006,COD007   # Désactiver règles
 codengine analyze ./src -v                 # Verbose (suggestions)
+codengine analyze ./src --tag              # Annoter les lignes en violation
+codengine analyze ./src --untag            # Retirer les annotations
 codengine fix ./src                        # Auto-fix
 codengine fix ./src --dry-run              # Preview fixes
 codengine extract-oracle -c "..."          # Extraire packages Oracle
@@ -97,7 +99,7 @@ codengine init                             # Créer config
 
 | ID | Nom | Catégorie | Sévérité | Auto-fix |
 |----|-----|-----------|----------|----------|
-| COD001 | NullCheckAfterOrDefault | NullSafety | Error | Oui | Méthodes *OrDefault() (First, Single, Last, ElementAt) — types référence uniquement |
+| COD001 | NullCheckAfterOrDefault | NullSafety | Error | Oui | Méthodes *OrDefault() (First, Single, Last, ElementAt) — types référence uniquement. Guard clause composé supporté (`if (x == null \|\| !x.Prop)`) |
 | COD002 | EmptyListBeforeContains | NullSafety | Error | Non | Sur tout .Where() — liste vide dans Contains() annule le filtrage |
 | COD003 | AsyncMethodNaming | Naming | Warning | Oui |
 | COD004 | DisposePattern | Resources | Warning | Non |
@@ -154,7 +156,7 @@ public class MaRegle : RuleBase
 - 3 auto-fixers (COD001, COD003, COD005)
 - 3 reporters (Console, JSON, HTML)
 - 1 connecteur (Oracle)
-- 31 tests unitaires passent
+- 33 tests unitaires passent
 
 ## Documentation utilisateur
 

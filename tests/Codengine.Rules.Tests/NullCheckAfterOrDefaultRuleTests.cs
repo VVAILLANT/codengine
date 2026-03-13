@@ -663,6 +663,73 @@ public class Test
         Assert.Empty(violations);
     }
 
+    [Fact]
+    public void Should_Not_Detect_When_Usage_In_Else_Of_Null_Throw_Guard()
+    {
+        // Cas : if (var == null) { throw; } else { var.Prop → safe }
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class EnPrestataire { public string Code { get; set; } }
+
+public class Test
+{
+    private string _code;
+
+    public void Method(List<EnPrestataire> list)
+    {
+        var evenementsXmobile = list.FirstOrDefault(x => x.Code == ""XMobile"");
+        if (evenementsXmobile == null)
+        {
+            throw new System.ArgumentException(""Aucun prestataire Xmobile trouvé"");
+        }
+        else
+        {
+            _code = evenementsXmobile.Code; // Safe : else garantit non-null
+        }
+    }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Should_Not_Detect_When_Same_Name_Reused_As_Foreach_Loop_Variable()
+    {
+        // Cas : evtPosition est déclaré via FirstOrDefault() dans un premier foreach (avec null check),
+        // puis reréféré comme variable de boucle dans un second foreach distinct → faux positif COD001
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Item { public int Value { get; set; } }
+
+public class Test
+{
+    public void Method(List<Item> list1, List<Item> list2)
+    {
+        foreach (var x in list1)
+        {
+            var evtPosition = list1.FirstOrDefault(s => s.Value == x.Value);
+            if (evtPosition != null)
+                System.Console.WriteLine(evtPosition.Value);
+        }
+
+        foreach (Item evtPosition in list2)
+        {
+            if (evtPosition.Value == 0) continue; // Ne doit PAS être signalé COD001
+        }
+    }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Empty(violations);
+    }
+
     private List<Violation> AnalyzeCode(string code)
     {
         var tree = CSharpSyntaxTree.ParseText(code);
