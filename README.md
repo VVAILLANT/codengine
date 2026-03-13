@@ -6,16 +6,41 @@ Analyseur de code statique pour C# (.NET Framework 4.8 / .NET 9) et PL/SQL Oracl
 
 ## Installation
 
+### Prérequis
+
+- **.NET SDK 9.0** — installer via winget :
+
 ```bash
-# Cloner le projet
-git clone <repo-url>
+winget install Microsoft.DotNet.SDK.9
+```
+
+### Installer Codengine
+
+```bash
+git clone https://github.com/VVAILLANT/codengine.git
 cd codengine
+dotnet pack src/Codengine.Cli -o src/Codengine.Cli/nupkg
+dotnet tool install --global --add-source src/Codengine.Cli/nupkg Codengine.Cli
+```
 
-# Builder
-dotnet build
+### Vérifier l'installation
 
-# Ou publier un exécutable
-dotnet publish -c Release -o ./publish
+```bash
+codengine list-rules
+```
+
+### Mise à jour
+
+```bash
+cd codengine
+git pull
+bash scripts/publish-tool.sh
+```
+
+### Désinstallation
+
+```bash
+dotnet tool uninstall --global Codengine.Cli
 ```
 
 ## Utilisation

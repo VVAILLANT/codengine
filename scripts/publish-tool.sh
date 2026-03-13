@@ -28,9 +28,10 @@ sed -i "s|<Version>$CURRENT</Version>|<Version>$NEW_VERSION</Version>|" "$CSPROJ
 "$DOTNET" tool uninstall --global Codengine.Cli 2>/dev/null || true
 "$DOTNET" tool install --global --add-source "$NUPKG_DIR" --ignore-failed-sources Codengine.Cli 2>&1
 
-# Committer la nouvelle version
+# Committer et pousser la nouvelle version
 git add "$CSPROJ"
 git commit -m "chore: bump Codengine.Cli version to $NEW_VERSION"
+git push
 
 echo ""
 echo "Outil global mis a jour : codengine v$NEW_VERSION"

@@ -2,29 +2,13 @@
 
 ## Azure DevOps
 
-Deux pipelines sont disponibles dans le dossier `pipelines/` du repo Codengine.
+Le pipeline `pipelines/codengine-pr-validation.yml` est à copier dans le repo cible (ex: `.azure/pr-validation.yml`).
 
 ---
 
-### Pipeline 1 — Validation des PR du repo Codengine
+### Pipeline — Validation des PR d'un projet externe
 
-**Fichier** : `pipelines/pr-validation.yml`
-
-Déclenché automatiquement sur chaque PR vers `master`. Exécute les tests unitaires et analyse le code source de Codengine avec lui-même.
-
-**Ce qu'il fait :**
-1. Build du projet en Release
-2. Exécution des tests xUnit
-3. Analyse Codengine sur `./src`
-4. Commentaire automatique sur la PR (✅ OK ou ❌ erreurs)
-5. Blocage du merge si erreurs détectées
-
----
-
-### Pipeline 2 — Validation des PR d'un projet externe
-
-**Fichier** : `pipelines/mroad-pr-validation.yml`
-À copier dans le repo cible (ex: `.azure/pr-validation.yml`).
+**Fichier** : `pipelines/codengine-pr-validation.yml`
 
 **Ce qu'il fait :**
 1. Télécharge uniquement les fichiers `.cs` modifiés par la PR via l'API Azure DevOps (`checkout: none` — le repo n'est pas cloné)

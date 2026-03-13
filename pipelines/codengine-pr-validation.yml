@@ -30,7 +30,7 @@ variables:
   REPORT_PATH: $(Agent.TempDirectory)/codengine-report.json
 
 steps:
-  - checkout: none  # On ne clone pas MROAD — uniquement les fichiers modifiés sont téléchargés
+  - checkout: none  # On ne clone pas le repo cible — uniquement les fichiers modifiés sont téléchargés
 
   # ── .NET 9 SDK ─────────────────────────────────────────────────────────────
   - task: UseDotNet@2
