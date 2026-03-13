@@ -147,58 +147,57 @@ jobs:
 
 ## Azure DevOps
 
-### Pipeline YAML
+Deux pipelines sont disponibles dans le dossier `pipelines/` du repo Codengine.
+
+---
+
+### Pipeline 1 — Validation des PR du repo Codengine
+
+**Fichier** : `pipelines/pr-validation.yml`
+
+Déclenché automatiquement sur chaque PR vers `master`. Exécute les tests unitaires et analyse le code source de Codengine avec lui-même.
+
+**Ce qu'il fait :**
+1. Build du projet en Release
+2. Exécution des tests xUnit
+3. Analyse Codengine sur `./src`
+4. Commentaire automatique sur la PR (✅ OK ou ❌ erreurs)
+5. Blocage du merge si erreurs détectées
+
+---
+
+### Pipeline 2 — Validation des PR d'un projet externe (ex: MROAD)
+
+**Fichier** : `pipelines/mroad-pr-validation.yml`
+À copier dans le repo cible (ex: `.azure/pr-validation.yml`).
+
+**Caractéristiques :**
+- `checkout: none` — ne clone **pas** le repo entier
+- Télécharge uniquement les fichiers `.cs` modifiés par la PR via l'API Azure DevOps
+- Clone et build Codengine depuis GitHub avec **cache NuGet et build** (invalidé automatiquement à chaque nouvelle version)
+- Ne se déclenche pas si seuls des fichiers `.yml`/`.yaml` sont modifiés
+- Commentaire sur la PR avec version Codengine, commit et lien vers le rapport
+- Mode manuel disponible (smoke test : build + `list-rules`)
+
+**Prérequis :**
+- Activer **"Allow scripts to access the OAuth token"** dans les paramètres de la pipeline
+- Configurer une **Branch Policy** sur la branche cible avec `Requirement: Required`
+
+**Règles actives par défaut :**
+
+| Règle | Description | Sévérité |
+|-------|-------------|----------|
+| COD001 | NullCheckAfterSingleOrDefault | Error |
+| COD002 | EmptyListBeforeContains (ORM uniquement) | Error |
+
+Pour activer des règles supplémentaires, retirer les IDs de l'option `-d` dans le step `Codengine analyze` :
 
 ```yaml
-trigger:
-  branches:
-    include:
-      - main
-      - develop
-
-pool:
-  vmImage: 'ubuntu-latest'
-
-steps:
-  - task: UseDotNet@2
-    inputs:
-      version: '9.0.x'
-
-  - script: |
-      git clone https://github.com/your-org/codengine.git $(Agent.TempDirectory)/codengine
-      dotnet publish $(Agent.TempDirectory)/codengine/src/Codengine.Cli -c Release -o $(Agent.TempDirectory)/codengine-bin
-    displayName: 'Install Codengine'
-
-  - script: |
-      $(Agent.TempDirectory)/codengine-bin/Codengine.Cli analyze ./src -f json -o $(Build.ArtifactStagingDirectory)/codengine-report.json
-    displayName: 'Run Codengine Analysis'
-    continueOnError: true
-
-  - task: PublishBuildArtifacts@1
-    inputs:
-      PathtoPublish: '$(Build.ArtifactStagingDirectory)/codengine-report.json'
-      ArtifactName: 'CodengineReport'
-    displayName: 'Publish Report'
-
-  - script: |
-      $(Agent.TempDirectory)/codengine-bin/Codengine.Cli analyze ./src
-    displayName: 'Check for Errors (Fail on Error)'
+dotnet "$(CODENGINE_DLL)" analyze "$(CHANGED_DIR)" -f json -o "$(REPORT_PATH)" -d COD003,COD004,...
 ```
 
-### Avec Quality Gate
-
-```yaml
-steps:
-  - script: |
-      RESULT=$($(Agent.TempDirectory)/codengine-bin/Codengine.Cli analyze ./src -f json -o report.json; echo $?)
-      ERRORS=$(jq '.summary.errors' report.json)
-
-      if [ "$ERRORS" -gt 0 ]; then
-        echo "##vso[task.logissue type=error]$ERRORS error(s) found by Codengine"
-        echo "##vso[task.complete result=Failed;]Quality gate failed"
-      fi
-    displayName: 'Quality Gate'
-```
+**Comportement de la pipeline rouge :**
+Une croix rouge indique que Codengine a détecté des erreurs (comportement intentionnel pour bloquer le merge). Ce n'est pas un crash de la pipeline.
 
 ---
 
