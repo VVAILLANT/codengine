@@ -7,21 +7,23 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace Codengine.Rules.CSharp;
 
 /// <summary>
-/// Vérifie qu'après chaque SingleOrDefault() ou FirstOrDefault(),
+/// Vérifie qu'après chaque méthode LINQ *OrDefault() retournant un type référence,
 /// le résultat est vérifié pour null avant utilisation.
 /// Fonctionne comme un mini-analyseur de flux : chaque usage de la variable
 /// est vérifié individuellement en remontant l'arbre syntaxique.
+/// Ignore les types valeur (int, struct, etc.) qui ne peuvent pas être null.
 /// </summary>
 public class NullCheckAfterSingleOrDefaultRule : RuleBase
 {
     public override string Id => "COD001";
     public override string Name => "NullCheckAfterSingleOrDefault";
     public override string Description =>
-        "Le résultat de SingleOrDefault() ou FirstOrDefault() doit être vérifié pour null avant utilisation.";
+        "Le résultat d'une méthode LINQ *OrDefault() doit être vérifié pour null avant utilisation (types référence uniquement).";
     public override RuleSeverity Severity => RuleSeverity.Error;
     public override string Category => "NullSafety";
 
-    private static readonly string[] TargetMethods = { "SingleOrDefault", "FirstOrDefault" };
+    private static readonly string[] TargetMethods =
+        { "SingleOrDefault", "FirstOrDefault", "LastOrDefault", "ElementAtOrDefault" };
 
     public override IEnumerable<Violation> Analyze(RuleContext context)
     {
@@ -36,6 +38,14 @@ public class NullCheckAfterSingleOrDefaultRule : RuleBase
         {
             var variableDeclaration = GetVariableDeclaration(invocation);
             if (variableDeclaration == null)
+                continue;
+
+            // Si l'appel est dans un ?? (coalesce), la variable est garantie non-null
+            if (IsWrappedInCoalesce(invocation))
+                continue;
+
+            // Les types valeur (int, struct, etc.) ne peuvent pas être null → pas de faux positif
+            if (IsValueType(variableDeclaration, context.SemanticModel))
                 continue;
 
             var variableName = variableDeclaration.Identifier.Text;
@@ -149,6 +159,51 @@ public class NullCheckAfterSingleOrDefaultRule : RuleBase
             .FirstOrDefault();
 
         return equalsClause?.Parent as VariableDeclaratorSyntax;
+    }
+
+    /// <summary>
+    /// Vérifie si la variable est de type valeur (int, struct, enum, etc.).
+    /// Les types valeur ne peuvent pas être null → pas de faux positif.
+    /// Si le SemanticModel n'est pas disponible, retourne false (on suppose type référence par défaut).
+    /// </summary>
+    private static bool IsValueType(VariableDeclaratorSyntax declarator, SemanticModel? semanticModel)
+    {
+        if (semanticModel == null)
+            return false;
+
+        var symbol = semanticModel.GetDeclaredSymbol(declarator);
+        if (symbol is ILocalSymbol local)
+        {
+            var type = local.Type;
+            // int, struct, enum → type valeur, pas de risque null
+            // int?, Nullable<T> → type valeur nullable, peut être null → on traite comme référence
+            return type.IsValueType && type.OriginalDefinition.SpecialType != SpecialType.System_Nullable_T
+                                    && type.NullableAnnotation != NullableAnnotation.Annotated;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Vérifie si l'invocation est enveloppée dans un opérateur ?? (coalesce).
+    /// Ex: var item = list.SingleOrDefault() ?? fallback; → item est garanti non-null.
+    /// </summary>
+    private static bool IsWrappedInCoalesce(InvocationExpressionSyntax invocation)
+    {
+        var current = invocation.Parent;
+        while (current != null)
+        {
+            if (current is BinaryExpressionSyntax binary
+                && binary.IsKind(SyntaxKind.CoalesceExpression)
+                && binary.Left.Span.Contains(invocation.Span))
+                return true;
+
+            if (current is EqualsValueClauseSyntax or StatementSyntax)
+                break;
+
+            current = current.Parent;
+        }
+        return false;
     }
 
     /// <summary>

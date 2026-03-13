@@ -1,5 +1,7 @@
+using System.Linq;
 using Codengine.Core.Models;
 using Codengine.Rules.CSharp;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Xunit;
 
@@ -471,6 +473,53 @@ public class Test
     }
 
     [Fact]
+    public void Should_Not_Detect_When_Coalesce_At_Declaration()
+    {
+        // var item = list.SingleOrDefault() ?? fallback → item garanti non-null
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Test
+{
+    public void Method()
+    {
+        var list = new List<string> { ""a"", ""b"" };
+        var item = list.SingleOrDefault(x => x == ""a"") ?? ""default"";
+        var length = item.Length;
+    }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Should_Not_Detect_When_CoalesceAssignment_Before_Usage()
+    {
+        // item ??= fallback → après, item est garanti non-null (réassignation)
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Test
+{
+    public void Method()
+    {
+        var list = new List<string> { ""a"", ""b"" };
+        var item = list.SingleOrDefault(x => x == ""a"");
+        item ??= ""safe"";
+        var length = item.Length;
+    }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
     public void Should_Not_Detect_When_NullCheck_No_Spaces()
     {
         // item!=null sans espaces → AST gère correctement (pas de dépendance aux espaces)
@@ -497,6 +546,123 @@ public class Test
         Assert.Empty(violations);
     }
 
+    [Fact]
+    public void Should_Detect_LastOrDefault_As_Well()
+    {
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Test
+{
+    public void Method()
+    {
+        var list = new List<string> { ""a"", ""b"" };
+        var item = list.LastOrDefault();
+        var length = item.Length;
+    }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.NotEmpty(violations);
+        Assert.Contains(violations, v => v.RuleId == "COD001");
+    }
+
+    [Fact]
+    public void Should_Detect_ElementAtOrDefault_As_Well()
+    {
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Test
+{
+    public void Method()
+    {
+        var list = new List<string> { ""a"", ""b"" };
+        var item = list.ElementAtOrDefault(5);
+        var length = item.Length;
+    }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.NotEmpty(violations);
+        Assert.Contains(violations, v => v.RuleId == "COD001");
+    }
+
+    [Fact]
+    public void Should_Not_Detect_When_Value_Type()
+    {
+        // int est un type valeur → FirstOrDefault() retourne 0, pas null → pas de violation
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Test
+{
+    public void Method()
+    {
+        var list = new List<int> { 1, 2, 3 };
+        var item = list.FirstOrDefault();
+        var text = item.ToString();
+    }
+}";
+
+        var violations = AnalyzeCodeWithSemanticModel(code);
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Should_Detect_When_Reference_Type_With_SemanticModel()
+    {
+        // string est un type référence → doit détecter
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Test
+{
+    public void Method()
+    {
+        var list = new List<string> { ""a"", ""b"" };
+        var item = list.FirstOrDefault();
+        var length = item.Length;
+    }
+}";
+
+        var violations = AnalyzeCodeWithSemanticModel(code);
+
+        Assert.NotEmpty(violations);
+        Assert.Contains(violations, v => v.RuleId == "COD001");
+    }
+
+    [Fact]
+    public void Should_Not_Detect_When_Struct_Type()
+    {
+        // DateTime est un type valeur (struct) → pas de risque null
+        var code = @"
+using System;
+using System.Linq;
+using System.Collections.Generic;
+
+public class Test
+{
+    public void Method()
+    {
+        var list = new List<DateTime> { DateTime.Now };
+        var item = list.SingleOrDefault();
+        var year = item.Year;
+    }
+}";
+
+        var violations = AnalyzeCodeWithSemanticModel(code);
+
+        Assert.Empty(violations);
+    }
+
     private List<Violation> AnalyzeCode(string code)
     {
         var tree = CSharpSyntaxTree.ParseText(code);
@@ -507,6 +673,40 @@ public class Test
             SemanticModel = null,
             FilePath = "test.cs",
             Compilation = null
+        };
+
+        return _rule.Analyze(context).ToList();
+    }
+
+    private List<Violation> AnalyzeCodeWithSemanticModel(string code)
+    {
+        var tree = CSharpSyntaxTree.ParseText(code);
+
+        var references = new MetadataReference[]
+        {
+            MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(Enumerable).Assembly.Location),
+        };
+
+        // Ajouter la référence au runtime pour résoudre tous les types
+        var runtimeDir = System.IO.Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+        var runtimeRef = MetadataReference.CreateFromFile(
+            System.IO.Path.Combine(runtimeDir, "System.Runtime.dll"));
+
+        var compilation = CSharpCompilation.Create(
+            "TestAnalysis",
+            new[] { tree },
+            references.Append(runtimeRef),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        var semanticModel = compilation.GetSemanticModel(tree);
+
+        var context = new RuleContext
+        {
+            SyntaxTree = tree,
+            SemanticModel = semanticModel,
+            FilePath = "test.cs",
+            Compilation = compilation
         };
 
         return _rule.Analyze(context).ToList();

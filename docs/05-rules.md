@@ -23,14 +23,22 @@ Codengine inclut 9 règles d'analyse pour le code C#, organisées par catégorie
 
 ### Description
 
-Vérifie qu'après chaque appel à `SingleOrDefault()` ou `FirstOrDefault()`, le résultat est vérifié pour `null` avant utilisation.
+Vérifie qu'après chaque appel à une méthode LINQ `*OrDefault()`, le résultat est vérifié pour `null` avant utilisation. S'applique uniquement aux types référence (les types valeur comme `int`, `DateTime`, etc. sont ignorés car ils ne peuvent pas être `null`).
+
+### Méthodes détectées
+
+`FirstOrDefault()`, `SingleOrDefault()`, `LastOrDefault()`, `ElementAtOrDefault()`
 
 ### Problème
 
 ```csharp
-// VIOLATION : Pas de null check
+// VIOLATION : Pas de null check (type référence)
 var user = users.FirstOrDefault(u => u.Id == id);
 var name = user.Name;  // NullReferenceException si user est null
+
+// PAS DE VIOLATION : Type valeur
+var number = numbers.FirstOrDefault();
+var text = number.ToString();  // int → default(int) = 0, pas null
 ```
 
 ### Solution
@@ -44,9 +52,13 @@ if (user == null)
 }
 var name = user.Name;
 
-// CORRECT : Opérateur null-conditionnel
+// CORRECT : Opérateur null-conditionnel (?.)
 var user = users.FirstOrDefault(u => u.Id == id);
 var name = user?.Name ?? "Inconnu";
+
+// CORRECT : Opérateur null-coalescing (??) à la déclaration
+var user = users.FirstOrDefault(u => u.Id == id) ?? new User();
+var name = user.Name;
 
 // CORRECT : Pattern matching
 var user = users.FirstOrDefault(u => u.Id == id);
