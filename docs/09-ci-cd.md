@@ -29,7 +29,7 @@ Le pipeline `pipelines/codengine-pr-validation.yml` est à copier dans le repo c
 
 | Règle | Description | Sévérité |
 |-------|-------------|----------|
-| COD001 | NullCheckAfterSingleOrDefault | Error |
+| COD001 | NullCheckAfterOrDefault | Error |
 | COD002 | EmptyListBeforeContains (ORM uniquement) | Error |
 
 Pour activer des règles supplémentaires, retirer les IDs de l'option `-d` dans le step `Codengine analyze` :

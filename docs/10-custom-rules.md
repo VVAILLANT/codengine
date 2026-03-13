@@ -14,7 +14,7 @@ Codengine.Rules/
 │   ├── IRuleProvider.cs   # Fournisseur de règles
 │   └── DefaultRuleProvider.cs  # Découverte automatique
 ├── CSharp/
-│   ├── NullCheckAfterSingleOrDefaultRule.cs  # COD001
+│   ├── NullCheckAfterOrDefaultRule.cs  # COD001
 │   └── ... autres règles
 └── Fixes/
     └── NullCheckFixer.cs  # Auto-fixer pour COD001

@@ -7,9 +7,9 @@ using Xunit;
 
 namespace Codengine.Rules.Tests;
 
-public class NullCheckAfterSingleOrDefaultRuleTests
+public class NullCheckAfterOrDefaultRuleTests
 {
-    private readonly NullCheckAfterSingleOrDefaultRule _rule = new();
+    private readonly NullCheckAfterOrDefaultRule _rule = new();
 
     [Fact]
     public void Should_Detect_Missing_NullCheck_After_SingleOrDefault()

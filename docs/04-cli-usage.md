@@ -190,7 +190,7 @@ Règles disponibles:
          Les blocs catch vides masquent les erreurs.
 
   [NullSafety]
-    COD001 [Error] NullCheckAfterSingleOrDefault
+    COD001 [Error] NullCheckAfterOrDefault
          Vérifier null après SingleOrDefault/FirstOrDefault.
     COD002 [Error] EmptyListBeforeContains
          Vérifier liste non null/vide avant Contains().

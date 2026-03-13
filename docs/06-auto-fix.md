@@ -69,7 +69,7 @@ codengine fix ./src -r COD001,COD005
 
 ## Détail des corrections
 
-### COD001 - NullCheckAfterSingleOrDefault
+### COD001 - NullCheckAfterOrDefault
 
 **Avant :**
 ```csharp

@@ -97,7 +97,7 @@ codengine init                             # Créer config
 
 | ID | Nom | Catégorie | Sévérité | Auto-fix |
 |----|-----|-----------|----------|----------|
-| COD001 | NullCheckAfterSingleOrDefault | NullSafety | Error | Oui | Méthodes *OrDefault() (First, Single, Last, ElementAt) — types référence uniquement |
+| COD001 | NullCheckAfterOrDefault | NullSafety | Error | Oui | Méthodes *OrDefault() (First, Single, Last, ElementAt) — types référence uniquement |
 | COD002 | EmptyListBeforeContains | NullSafety | Error | Non | Sur tout .Where() — liste vide dans Contains() annule le filtrage |
 | COD003 | AsyncMethodNaming | Naming | Warning | Oui |
 | COD004 | DisposePattern | Resources | Warning | Non |

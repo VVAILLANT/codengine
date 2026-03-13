@@ -94,7 +94,7 @@ codengine analyze ./src -f json -o rapport.json
   "violations": [
     {
       "ruleId": "COD001",
-      "ruleName": "NullCheckAfterSingleOrDefault",
+      "ruleName": "NullCheckAfterOrDefault",
       "message": "La variable 'user' issue de FirstOrDefault() doit être vérifiée...",
       "filePath": "E:\\MonProjet\\src\\Services\\UserService.cs",
       "line": 42,

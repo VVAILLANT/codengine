@@ -15,7 +15,7 @@ Codengine inclut 9 règles d'analyse pour le code C#, organisées par catégorie
 
 ---
 
-## COD001 - NullCheckAfterSingleOrDefault
+## COD001 - NullCheckAfterOrDefault
 
 **Catégorie** : NullSafety
 **Sévérité** : Error

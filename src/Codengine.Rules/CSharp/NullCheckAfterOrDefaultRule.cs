@@ -13,10 +13,10 @@ namespace Codengine.Rules.CSharp;
 /// est vérifié individuellement en remontant l'arbre syntaxique.
 /// Ignore les types valeur (int, struct, etc.) qui ne peuvent pas être null.
 /// </summary>
-public class NullCheckAfterSingleOrDefaultRule : RuleBase
+public class NullCheckAfterOrDefaultRule : RuleBase
 {
     public override string Id => "COD001";
-    public override string Name => "NullCheckAfterSingleOrDefault";
+    public override string Name => "NullCheckAfterOrDefault";
     public override string Description =>
         "Le résultat d'une méthode LINQ *OrDefault() doit être vérifié pour null avant utilisation (types référence uniquement).";
     public override RuleSeverity Severity => RuleSeverity.Error;

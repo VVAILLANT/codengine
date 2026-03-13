@@ -252,7 +252,7 @@ tests/
 ├── Codengine.Core.Tests/
 │   └── (tests du moteur)
 └── Codengine.Rules.Tests/
-    ├── NullCheckAfterSingleOrDefaultRuleTests.cs
+    ├── NullCheckAfterOrDefaultRuleTests.cs
     └── EmptyListBeforeContainsRuleTests.cs
 ```
 
