@@ -121,15 +121,11 @@ public class NullCheckAfterSingleOrDefaultRule : RuleBase
         {
             var statement = statements[i];
 
-            // Vérifier si c'est un null check
-            if (IsNullCheck(statement, variableName))
+            // Guard clause: if (var == null) return/throw → protège tout le reste
+            if (IsNullGuardClause(statement, variableName))
                 return true;
 
-            // Vérifier si c'est un pattern matching avec null check
-            if (IsPatternMatchingNullCheck(statement, variableName))
-                return true;
-
-            // Vérifier si la variable est utilisée avant un null check
+            // Vérifier si la variable est utilisée sans protection
             if (IsVariableUsedUnsafely(statement, variableName))
                 return false;
         }
@@ -137,48 +133,25 @@ public class NullCheckAfterSingleOrDefaultRule : RuleBase
         return true; // Pas d'utilisation après = OK
     }
 
-    private static bool IsNullCheck(StatementSyntax statement, string variableName)
+    private static bool IsNullGuardClause(StatementSyntax statement, string variableName)
     {
-        // Chercher: if (variable == null), if (variable != null), if (variable is null), etc.
-        if (statement is IfStatementSyntax ifStatement)
-        {
-            var condition = ifStatement.Condition.ToString();
-            if (condition.Contains($"{variableName} == null") ||
-                condition.Contains($"{variableName} != null") ||
-                condition.Contains($"{variableName} is null") ||
-                condition.Contains($"{variableName} is not null") ||
-                condition.Contains($"null == {variableName}") ||
-                condition.Contains($"null != {variableName}"))
-            {
-                return true;
-            }
-        }
+        if (statement is not IfStatementSyntax ifStatement)
+            return false;
 
-        // Vérifier l'opérateur ??
-        if (statement.ToString().Contains($"{variableName} ??"))
-            return true;
+        var condition = ifStatement.Condition.ToString();
 
-        // Vérifier l'opérateur ?.
-        if (statement.ToString().Contains($"{variableName}?."))
-            return true;
+        // if (var == null) ou if (var is null) → guard clause potentielle
+        bool checksForNull =
+            condition.Contains($"{variableName} == null") ||
+            condition.Contains($"{variableName} is null") ||
+            condition.Contains($"null == {variableName}");
 
-        return false;
-    }
+        if (!checksForNull)
+            return false;
 
-    private static bool IsPatternMatchingNullCheck(StatementSyntax statement, string variableName)
-    {
-        var text = statement.ToString();
-
-        // switch expression ou statement avec pattern matching
-        if (text.Contains($"{variableName} switch") ||
-            text.Contains($"case null when") ||
-            (text.Contains("is") && text.Contains(variableName) &&
-             (text.Contains("{ }") || text.Contains("not null"))))
-        {
-            return true;
-        }
-
-        return false;
+        // Le body doit contenir return ou throw pour être un guard clause
+        var bodyText = ifStatement.Statement.ToString();
+        return bodyText.Contains("return") || bodyText.Contains("throw");
     }
 
     private static bool IsVariableUsedUnsafely(StatementSyntax statement, string variableName)

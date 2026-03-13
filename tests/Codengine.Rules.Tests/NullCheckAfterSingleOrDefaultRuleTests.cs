@@ -128,6 +128,62 @@ public class Test
         Assert.Empty(violations);
     }
 
+    [Fact]
+    public void Should_Detect_When_Safe_And_Unsafe_Usages_Coexist()
+    {
+        // Usage sécurisée dans un foreach + usage non sécurisée en fin de méthode
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Test
+{
+    public void Method()
+    {
+        var list = new List<string> { ""a"", ""b"" };
+        var item = list.SingleOrDefault(x => x == ""a"");
+
+        foreach (var x in list)
+        {
+            if (item != null)
+            {
+                var length = item.Length;
+            }
+        }
+
+        var unsafeLength = item.Length;
+    }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Single(violations);
+        Assert.Equal("COD001", violations[0].RuleId);
+    }
+
+    [Fact]
+    public void Should_Not_Detect_When_Guard_Clause_Protects()
+    {
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Test
+{
+    public void Method()
+    {
+        var list = new List<string> { ""a"", ""b"" };
+        var item = list.SingleOrDefault(x => x == ""a"");
+        if (item == null) return;
+        var length = item.Length;
+    }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Empty(violations);
+    }
+
     private List<Violation> AnalyzeCode(string code)
     {
         var tree = CSharpSyntaxTree.ParseText(code);
