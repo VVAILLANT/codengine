@@ -8,7 +8,7 @@ Codengine peut corriger automatiquement certaines violations de règles. Cette f
 
 | Règle | Description de la correction |
 |-------|------------------------------|
-| COD001 | Ajoute un null check après SingleOrDefault/FirstOrDefault |
+| COD001 | Ajoute un null check après les méthodes *OrDefault() (types référence) |
 | COD003 | Renomme les méthodes async pour terminer par "Async" |
 | COD005 | Ajoute un rethrow dans les blocs catch vides |
 

@@ -150,12 +150,11 @@ public class MaRegle : RuleBase
 
 ## État actuel
 
-- 33 fichiers sources
 - 9 règles implémentées
 - 3 auto-fixers (COD001, COD003, COD005)
 - 3 reporters (Console, JSON, HTML)
 - 1 connecteur (Oracle)
-- 7 tests unitaires passent
+- 31 tests unitaires passent
 
 ## Documentation utilisateur
 
