@@ -17,13 +17,13 @@ variables:
   CODENGINE_DIR: $(Pipeline.Workspace)/codengine
   CODENGINE_DLL: $(Pipeline.Workspace)/codengine/src/Codengine.Cli/bin/Release/net9.0/Codengine.Cli.dll
   NUGET_PACKAGES: $(Pipeline.Workspace)/.nuget/packages
+  CHANGED_DIR: $(Agent.TempDirectory)/changed
   REPORT_PATH: $(Agent.TempDirectory)/codengine-report.json
-  CHANGED_FILES_PATH: $(Agent.TempDirectory)/changed-files.txt
 
 steps:
-  - checkout: self
+  - checkout: none  # On ne clone pas MROAD — uniquement les fichiers modifiés sont téléchargés
 
-  # ── .NET 9 SDK (pour builder et exécuter Codengine) ────────────────────────
+  # ── .NET 9 SDK ─────────────────────────────────────────────────────────────
   - task: UseDotNet@2
     inputs:
       packageType: sdk
@@ -33,23 +33,22 @@ steps:
   # ── Cache NuGet Codengine ──────────────────────────────────────────────────
   - task: Cache@2
     inputs:
-      key: 'codengine-nuget | "$(Agent.OS)" | $(CODENGINE_DIR)/codengine.sln'
+      key: 'codengine-nuget | "$(Agent.OS)"'
       restoreKeys: |
         codengine-nuget | "$(Agent.OS)"
       path: $(NUGET_PACKAGES)
     displayName: Cache NuGet (Codengine)
 
-  # ── Cache du build Codengine ───────────────────────────────────────────────
-  # Évite de recompiler si le source n'a pas changé
+  # ── Cache build Codengine ──────────────────────────────────────────────────
   - task: Cache@2
     inputs:
-      key: 'codengine-build | "$(Agent.OS)" | $(CODENGINE_DIR)/src/Codengine.Cli/Codengine.Cli.csproj'
+      key: 'codengine-build | "$(Agent.OS)" | https://github.com/VVAILLANT/codengine.git'
       restoreKeys: |
         codengine-build | "$(Agent.OS)"
       path: $(CODENGINE_DIR)/src/Codengine.Cli/bin/Release/net9.0
     displayName: Cache build Codengine
 
-  # ── Cloner et builder Codengine depuis GitHub ──────────────────────────────
+  # ── Cloner et builder Codengine ────────────────────────────────────────────
   - script: |
       if [ -f "$(CODENGINE_DLL)" ]; then
         echo "Codengine déjà buildé (cache), skip."
@@ -63,46 +62,69 @@ steps:
       fi
     displayName: Build Codengine
 
-  # ── Récupérer les fichiers .cs modifiés par la PR ──────────────────────────
+  # ── Télécharger uniquement les fichiers .cs modifiés par la PR ─────────────
   - script: |
+      set -e
       PR_ID="$(System.PullRequest.PullRequestId)"
-      ORG_URL="${SYSTEM_TEAMFOUNDATIONCOLLECTIONURI}"
-      PROJECT="${SYSTEM_TEAMPROJECTID}"
-      REPO_ID="${BUILD_REPOSITORY_ID}"
+      ORG_URL="$(System.TeamFoundationCollectionUri)"
+      PROJECT="$(System.TeamProjectId)"
+      REPO_ID="$(Build.Repository.ID)"
+      COMMIT_ID="$(Build.SourceVersion)"
+      DEST="$(CHANGED_DIR)"
+
+      mkdir -p "$DEST"
 
       echo "Récupération des fichiers modifiés pour la PR #$PR_ID..."
 
-      # Appel REST API Azure DevOps : liste des changements de la PR
-      RESPONSE=$(curl -s \
+      # Récupérer la dernière itération de la PR
+      RESPONSE=$(curl -sf \
         -H "Authorization: Bearer $SYSTEM_ACCESSTOKEN" \
         "${ORG_URL}${PROJECT}/_apis/git/repositories/${REPO_ID}/pullRequests/${PR_ID}/iterations?api-version=7.1")
 
       LAST_ITERATION=$(echo "$RESPONSE" | jq '.value | length')
 
-      CHANGES=$(curl -s \
+      # Récupérer les fichiers modifiés
+      CHANGES=$(curl -sf \
         -H "Authorization: Bearer $SYSTEM_ACCESSTOKEN" \
         "${ORG_URL}${PROJECT}/_apis/git/repositories/${REPO_ID}/pullRequests/${PR_ID}/iterations/${LAST_ITERATION}/changes?api-version=7.1")
 
-      # Extraire uniquement les fichiers .cs (ajoutés ou modifiés, pas supprimés)
-      echo "$CHANGES" | jq -r '
+      # Extraire les chemins des fichiers .cs ajoutés ou modifiés (pas supprimés)
+      CS_FILES=$(echo "$CHANGES" | jq -r '
         .changeEntries[]
         | select(.changeType != "delete" and (.item.path | endswith(".cs")))
         | .item.path
-      ' | while read -r filepath; do
-          # Convertir le chemin relatif en chemin absolu dans le workspace
-          echo "$(Build.SourcesDirectory)${filepath}"
-        done > "$(CHANGED_FILES_PATH)"
+      ')
 
-      COUNT=$(wc -l < "$(CHANGED_FILES_PATH)")
+      COUNT=$(echo "$CS_FILES" | grep -c . || true)
       echo "Fichiers .cs modifiés : $COUNT"
-      cat "$(CHANGED_FILES_PATH)"
+
+      if [ "$COUNT" -eq 0 ]; then
+        echo "##vso[task.setvariable variable=CHANGED_CS_COUNT]0"
+        exit 0
+      fi
+
+      # Télécharger chaque fichier via l'API Items (contenu au commit de la PR)
+      echo "$CS_FILES" | while IFS= read -r filepath; do
+        [ -z "$filepath" ] && continue
+
+        # Recréer l'arborescence localement
+        LOCAL_PATH="$DEST$filepath"
+        mkdir -p "$(dirname "$LOCAL_PATH")"
+
+        curl -sf \
+          -H "Authorization: Bearer $SYSTEM_ACCESSTOKEN" \
+          "${ORG_URL}${PROJECT}/_apis/git/repositories/${REPO_ID}/items?path=${filepath}&versionType=commit&version=${COMMIT_ID}&api-version=7.1" \
+          -o "$LOCAL_PATH"
+
+        echo "  Téléchargé : $filepath"
+      done
 
       echo "##vso[task.setvariable variable=CHANGED_CS_COUNT]$COUNT"
     env:
       SYSTEM_ACCESSTOKEN: $(System.AccessToken)
-    displayName: Get changed .cs files
+    displayName: Download changed .cs files
 
-  # ── Analyse Codengine sur les fichiers modifiés ────────────────────────────
+  # ── Analyse Codengine ──────────────────────────────────────────────────────
   - script: |
       COUNT="$(CHANGED_CS_COUNT)"
 
@@ -115,22 +137,14 @@ steps:
       fi
 
       set +e
-      REPORT="$(REPORT_PATH)"
-
-      # Analyser chaque fichier modifié
-      # Codengine accepte un fichier ou un dossier ; on boucle sur les fichiers
       TOTAL_VIOLATIONS=0
       TOTAL_ERRORS=0
       TOTAL_WARNINGS=0
       ALL_VIOLATIONS="[]"
 
-      while IFS= read -r filepath; do
-        if [ ! -f "$filepath" ]; then
-          echo "Fichier introuvable (peut-être supprimé): $filepath"
-          continue
-        fi
-
-        TMP_REPORT="$(Agent.TempDirectory)/report_$(basename "$filepath").json"
+      # Analyser chaque fichier .cs téléchargé
+      find "$(CHANGED_DIR)" -name "*.cs" | while IFS= read -r filepath; do
+        TMP_REPORT="$(Agent.TempDirectory)/report_$(echo "$filepath" | md5sum | cut -c1-8).json"
         dotnet "$(CODENGINE_DLL)" analyze "$filepath" -f json -o "$TMP_REPORT" 2>/dev/null
 
         if [ -f "$TMP_REPORT" ]; then
@@ -140,16 +154,19 @@ steps:
           TOTAL_ERRORS=$((TOTAL_ERRORS + FILE_ERRORS))
           TOTAL_WARNINGS=$((TOTAL_WARNINGS + FILE_WARNINGS))
           TOTAL_VIOLATIONS=$((TOTAL_VIOLATIONS + FILE_VIOLATIONS))
-
-          # Fusionner les violations
           FILE_VIOLS=$(jq '.violations' "$TMP_REPORT")
           ALL_VIOLATIONS=$(echo "$ALL_VIOLATIONS $FILE_VIOLS" | jq -s 'add')
         fi
-      done < "$(CHANGED_FILES_PATH)"
+      done
 
-      # Sauvegarder le rapport consolidé
-      echo "{\"summary\":{\"totalViolations\":$TOTAL_VIOLATIONS,\"errors\":$TOTAL_ERRORS,\"warnings\":$TOTAL_WARNINGS,\"hasErrors\":$([ $TOTAL_ERRORS -gt 0 ] && echo true || echo false)},\"violations\":$ALL_VIOLATIONS}" \
-        | jq '.' > "$REPORT"
+      # Rapport consolidé
+      jq -n \
+        --argjson total $TOTAL_VIOLATIONS \
+        --argjson errors $TOTAL_ERRORS \
+        --argjson warnings $TOTAL_WARNINGS \
+        --argjson violations "$ALL_VIOLATIONS" \
+        '{summary:{totalViolations:$total,errors:$errors,warnings:$warnings,hasErrors:($errors > 0)},violations:$violations}' \
+        > "$(REPORT_PATH)"
 
       if [ "$TOTAL_ERRORS" -eq 0 ]; then
         echo "##vso[task.setvariable variable=ANALYZE_ICON]✅"
@@ -157,20 +174,18 @@ steps:
         echo "##vso[task.setvariable variable=ANALYZE_PASSED]true"
       else
         echo "##vso[task.setvariable variable=ANALYZE_ICON]❌"
-        echo "##vso[task.setvariable variable=ANALYZE_LABEL]$TOTAL_ERRORS erreur(s), $TOTAL_WARNINGS avertissement(s) — $TOTAL_VIOLATIONS violation(s) au total"
+        echo "##vso[task.setvariable variable=ANALYZE_LABEL]$TOTAL_ERRORS erreur(s), $TOTAL_WARNINGS avertissement(s)"
         echo "##vso[task.setvariable variable=ANALYZE_PASSED]false"
 
         jq -r '.violations[] | "- **\(.ruleId)** `\(.filePath | split("/")[-1]):\(.line)` — \(.message) [\(.severity)]"' \
-          "$REPORT" | head -20 > "$(Agent.TempDirectory)/violations.md"
+          "$(REPORT_PATH)" | head -20 > "$(Agent.TempDirectory)/violations.md"
       fi
-    displayName: Codengine analyze (changed files only)
+    displayName: Codengine analyze
     continueOnError: true
 
   # ── Commentaire PR ─────────────────────────────────────────────────────────
   - script: |
-      ANALYZE_OK="$(ANALYZE_PASSED)"
-
-      if [ "$ANALYZE_OK" = "true" ]; then
+      if [ "$(ANALYZE_PASSED)" = "true" ]; then
         HEADER="## ✅ Codengine — OK"
         SUMMARY="Aucune erreur détectée sur les fichiers modifiés par cette PR."
       else
@@ -179,7 +194,6 @@ steps:
       fi
 
       COMMIT_SHORT=$(echo "$(Build.SourceVersion)" | cut -c1-7)
-      COUNT="$(CHANGED_CS_COUNT)"
 
       COMMENT_FILE="$(Agent.TempDirectory)/pr-comment.md"
       {
@@ -189,16 +203,16 @@ steps:
         echo ""
         echo "| Contrôle | Résultat |"
         echo "|----------|----------|"
-        echo "| 🔍 Codengine analyse ($COUNT fichier(s) .cs) | $(ANALYZE_ICON) $(ANALYZE_LABEL) |"
+        echo "| 🔍 Codengine ($(CHANGED_CS_COUNT) fichier(s) .cs) | $(ANALYZE_ICON) $(ANALYZE_LABEL) |"
         echo ""
-        echo "*Commit : \`$COMMIT_SHORT\` — Pipeline : [#$(Build.BuildNumber)]($(System.TeamFoundationCollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId))*"
+        echo "*Commit : \`$COMMIT_SHORT\` — [Voir le rapport]($(System.TeamFoundationCollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId))*"
       } > "$COMMENT_FILE"
 
       if [ -f "$(Agent.TempDirectory)/violations.md" ] && [ -s "$(Agent.TempDirectory)/violations.md" ]; then
         {
           echo ""
           echo "<details>"
-          echo "<summary>Violations Codengine (cliquer pour développer)</summary>"
+          echo "<summary>Violations détaillées</summary>"
           echo ""
           cat "$(Agent.TempDirectory)/violations.md"
           echo ""
@@ -206,22 +220,17 @@ steps:
         } >> "$COMMENT_FILE"
       fi
 
-      BODY=$(cat "$COMMENT_FILE")
-      PAYLOAD=$(jq -n --arg body "$BODY" \
+      PAYLOAD=$(jq -n --arg body "$(cat "$COMMENT_FILE")" \
         '{"comments":[{"content":$body,"commentType":1}],"status":1}')
 
-      THREADS_URL="${SYSTEM_TEAMFOUNDATIONCOLLECTIONURI}${SYSTEM_TEAMPROJECTID}/_apis/git/repositories/${BUILD_REPOSITORY_ID}/pullRequests/${SYSTEM_PULLREQUEST_PULLREQUESTID}/threads?api-version=7.1"
+      THREADS_URL="$(System.TeamFoundationCollectionUri)$(System.TeamProjectId)/_apis/git/repositories/$(Build.Repository.ID)/pullRequests/$(System.PullRequest.PullRequestId)/threads?api-version=7.1"
 
       HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$THREADS_URL" \
         -H "Authorization: Bearer $SYSTEM_ACCESSTOKEN" \
         -H "Content-Type: application/json" \
         -d "$PAYLOAD")
 
-      if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
-        echo "Commentaire posté sur la PR (HTTP $HTTP_STATUS)"
-      else
-        echo "##vso[task.logissue type=warning]Impossible de poster le commentaire (HTTP $HTTP_STATUS)"
-      fi
+      echo "Commentaire posté (HTTP $HTTP_STATUS)"
     env:
       SYSTEM_ACCESSTOKEN: $(System.AccessToken)
     displayName: Post PR comment
