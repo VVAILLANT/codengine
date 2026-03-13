@@ -28,6 +28,7 @@ public class HtmlReporter : IReporter
     private static string GenerateHtml(AnalysisResult result, ReporterOptions options)
     {
         var sb = new StringBuilder();
+        var filesWithViolations = result.Violations.Select(v => v.FilePath).Distinct().Count();
 
         sb.AppendLine("<!DOCTYPE html>");
         sb.AppendLine("<html lang=\"fr\">");
@@ -54,6 +55,7 @@ public class HtmlReporter : IReporter
         sb.AppendLine($"            <div class=\"summary-card summary-card-full\"><span class=\"label\">Source</span><span class=\"value source-path\">{HttpUtility.HtmlEncode(result.SourcePath)}</span></div>");
         sb.AppendLine("            <div class=\"summary-grid\">");
         sb.AppendLine($"                <div class=\"summary-card\"><span class=\"label\">Fichiers analysés</span><span class=\"value\">{result.FilesAnalyzed}</span></div>");
+        sb.AppendLine($"                <div class=\"summary-card summary-card-alert\"><span class=\"label\">Fichiers problématiques</span><span class=\"value\">{filesWithViolations}</span></div>");
         sb.AppendLine($"                <div class=\"summary-card\"><span class=\"label\">Durée</span><span class=\"value\">{result.Duration.TotalSeconds:F2}s</span></div>");
         sb.AppendLine($"                <div class=\"summary-card\"><span class=\"label\">Date</span><span class=\"value\">{result.AnalyzedAt:yyyy-MM-dd HH:mm}</span></div>");
         sb.AppendLine("            </div>");
@@ -104,42 +106,62 @@ public class HtmlReporter : IReporter
             sb.AppendLine("            <h2>Violations</h2>");
 
             var groupedByFile = result.Violations.GroupBy(v => v.FilePath);
+            var fileIndex = 0;
 
             foreach (var fileGroup in groupedByFile)
             {
+                var criticals = fileGroup.Count(v => v.Severity == RuleSeverity.Critical);
+                var errors    = fileGroup.Count(v => v.Severity == RuleSeverity.Error);
+                var warnings  = fileGroup.Count(v => v.Severity == RuleSeverity.Warning);
+                var detailsId = $"file-details-{fileIndex++}";
+
                 sb.AppendLine($"            <div class=\"file-group\">");
-                sb.AppendLine($"                <h3 class=\"file-path\">{HttpUtility.HtmlEncode(fileGroup.Key)}</h3>");
-                sb.AppendLine("                <table>");
-                sb.AppendLine("                    <thead><tr><th>Ligne</th><th>Règle</th><th>Sévérité</th><th>Message</th></tr></thead>");
-                sb.AppendLine("                    <tbody>");
+
+                // En-tête cliquable
+                sb.AppendLine($"                <div class=\"file-header\" onclick=\"toggleFile('{detailsId}', this)\">");
+                sb.AppendLine($"                    <span class=\"file-path\">{HttpUtility.HtmlEncode(fileGroup.Key)}</span>");
+                sb.AppendLine($"                    <div class=\"file-badges\">");
+                if (criticals > 0) sb.AppendLine($"                        <span class=\"badge critical\">{criticals}</span>");
+                if (errors > 0)    sb.AppendLine($"                        <span class=\"badge error\">{errors}</span>");
+                if (warnings > 0)  sb.AppendLine($"                        <span class=\"badge warning\">{warnings}</span>");
+                sb.AppendLine($"                        <span class=\"toggle-icon\">▶</span>");
+                sb.AppendLine($"                    </div>");
+                sb.AppendLine($"                </div>");
+
+                // Détails (masqués par défaut)
+                sb.AppendLine($"                <div class=\"file-details\" id=\"{detailsId}\">");
+                sb.AppendLine("                    <table>");
+                sb.AppendLine("                        <thead><tr><th>Ligne</th><th>Règle</th><th>Sévérité</th><th>Message</th></tr></thead>");
+                sb.AppendLine("                        <tbody>");
 
                 foreach (var violation in fileGroup.OrderBy(v => v.Line))
                 {
                     var severityClass = violation.Severity.ToString().ToLower();
-                    sb.AppendLine($"                        <tr class=\"{severityClass}\">");
-                    sb.AppendLine($"                            <td class=\"line\">{violation.Line}</td>");
-                    sb.AppendLine($"                            <td class=\"rule\">{HttpUtility.HtmlEncode(violation.RuleId)}</td>");
-                    sb.AppendLine($"                            <td class=\"severity\"><span class=\"badge {severityClass}\">{violation.Severity}</span></td>");
-                    sb.AppendLine($"                            <td class=\"message\">{HttpUtility.HtmlEncode(violation.Message)}</td>");
-                    sb.AppendLine("                        </tr>");
+                    sb.AppendLine($"                            <tr class=\"{severityClass}\">");
+                    sb.AppendLine($"                                <td class=\"line\">{violation.Line}</td>");
+                    sb.AppendLine($"                                <td class=\"rule\">{HttpUtility.HtmlEncode(violation.RuleId)}</td>");
+                    sb.AppendLine($"                                <td class=\"severity\"><span class=\"badge {severityClass}\">{violation.Severity}</span></td>");
+                    sb.AppendLine($"                                <td class=\"message\">{HttpUtility.HtmlEncode(violation.Message)}</td>");
+                    sb.AppendLine("                            </tr>");
 
                     if (options.IncludeCodeSnippets && !string.IsNullOrEmpty(violation.CodeSnippet))
                     {
-                        sb.AppendLine("                        <tr class=\"snippet-row\">");
-                        sb.AppendLine($"                            <td colspan=\"4\"><pre class=\"snippet\">{HttpUtility.HtmlEncode(violation.CodeSnippet)}</pre></td>");
-                        sb.AppendLine("                        </tr>");
+                        sb.AppendLine("                            <tr class=\"snippet-row\">");
+                        sb.AppendLine($"                                <td colspan=\"4\"><pre class=\"snippet\">{HttpUtility.HtmlEncode(violation.CodeSnippet)}</pre></td>");
+                        sb.AppendLine("                            </tr>");
                     }
 
                     if (options.Verbose && !string.IsNullOrEmpty(violation.SuggestedFix))
                     {
-                        sb.AppendLine("                        <tr class=\"suggestion-row\">");
-                        sb.AppendLine($"                            <td colspan=\"4\"><div class=\"suggestion\">Suggestion: {HttpUtility.HtmlEncode(violation.SuggestedFix)}</div></td>");
-                        sb.AppendLine("                        </tr>");
+                        sb.AppendLine("                            <tr class=\"suggestion-row\">");
+                        sb.AppendLine($"                                <td colspan=\"4\"><div class=\"suggestion\">Suggestion: {HttpUtility.HtmlEncode(violation.SuggestedFix)}</div></td>");
+                        sb.AppendLine("                            </tr>");
                     }
                 }
 
-                sb.AppendLine("                    </tbody>");
-                sb.AppendLine("                </table>");
+                sb.AppendLine("                        </tbody>");
+                sb.AppendLine("                    </table>");
+                sb.AppendLine("                </div>");
                 sb.AppendLine("            </div>");
             }
 
@@ -158,6 +180,16 @@ public class HtmlReporter : IReporter
         sb.AppendLine("    <footer>");
         sb.AppendLine("        <p>Généré par Codengine</p>");
         sb.AppendLine("    </footer>");
+
+        sb.AppendLine("    <script>");
+        sb.AppendLine("        function toggleFile(id, header) {");
+        sb.AppendLine("            var el = document.getElementById(id);");
+        sb.AppendLine("            var icon = header.querySelector('.toggle-icon');");
+        sb.AppendLine("            var open = el.style.display !== 'none' && el.style.display !== '';");
+        sb.AppendLine("            el.style.display = open ? 'none' : 'block';");
+        sb.AppendLine("            icon.textContent = open ? '▶' : '▼';");
+        sb.AppendLine("        }");
+        sb.AppendLine("    </script>");
 
         sb.AppendLine("</body>");
         sb.AppendLine("</html>");
@@ -181,6 +213,7 @@ public class HtmlReporter : IReporter
         .source-path { display: block; font-family: monospace; font-size: 1rem; font-weight: 600; color: #333; word-break: break-all; white-space: pre-wrap; }
         .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
         .summary-card { background: #f8f9fa; padding: 1rem; border-radius: 6px; }
+        .summary-card.summary-card-alert { background: #fff3cd; border-left: 4px solid #ffc107; }
         .summary-card .label { display: block; font-size: 0.85rem; color: #666; }
         .summary-card .value { display: block; font-size: 1.2rem; font-weight: 600; color: #333; }
         .stats { display: flex; gap: 1rem; flex-wrap: wrap; }
@@ -197,15 +230,20 @@ public class HtmlReporter : IReporter
         .rules-table th, .rules-table td { padding: 0.5rem 0.75rem; text-align: left; border-bottom: 1px solid #eee; }
         .rules-table th { background: #f8f9fa; font-weight: 600; }
         .rule-count { font-weight: 700; text-align: center; width: 100px; }
-        .file-group { margin-bottom: 1.5rem; }
-        .file-path { font-size: 1rem; color: #0066cc; padding: 0.5rem; background: #f0f7ff; border-radius: 4px; margin-bottom: 0.5rem; font-family: monospace; word-break: break-all; white-space: pre-wrap; }
+        .file-group { margin-bottom: 0.5rem; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden; }
+        .file-header { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: #f0f7ff; cursor: pointer; user-select: none; gap: 1rem; }
+        .file-header:hover { background: #ddeeff; }
+        .file-header .file-path { font-family: monospace; font-size: 0.9rem; color: #0066cc; word-break: break-all; flex: 1; }
+        .file-badges { display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
+        .toggle-icon { font-size: 0.7rem; color: #666; margin-left: 0.25rem; }
+        .file-details { display: none; }
         table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
         th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid #eee; }
         th { background: #f8f9fa; font-weight: 600; }
         .line { width: 60px; font-family: monospace; color: #666; }
         .rule { width: 100px; font-family: monospace; }
         .severity { width: 100px; }
-        .badge { padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
+        .badge { padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
         .badge.critical { background: #dc3545; color: white; }
         .badge.error { background: #fd7e14; color: white; }
         .badge.warning { background: #ffc107; color: #333; }
