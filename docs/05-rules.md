@@ -64,27 +64,23 @@ var name = user.Name;
 
 ### Description
 
-Vérifie qu'avant d'utiliser `liste.Contains()` dans une requête ORM (`Query<>().Where()`, `Table<>()`, `Set<>()`, etc.), la liste est vérifiée pour ne pas être `null` ou vide.
-
-> **Pourquoi uniquement les requêtes ORM ?**
-> Une liste vide passée à `Contains()` dans une requête ORM peut annuler silencieusement la clause `WHERE`, ce qui retourne **toutes les lignes** de la table (potentiellement des dizaines de millions d'enregistrements). Ce comportement est spécifique à certains ORM et n'existe pas avec LINQ to Objects en mémoire.
-
-### Périmètre
-
-Cette règle se déclenche uniquement sur les chaînes démarrant par :
-`Query<>()`, `Table<>()`, `Set<>()`, `GetTable()`, `From()`
-
-Elle **ne s'applique pas** aux collections LINQ en mémoire (`list.Where(...)`, `GetItems().Where(...)`, etc.).
+Vérifie qu'avant d'utiliser `liste.Contains()` dans un `.Where()`, la liste est vérifiée pour ne pas être `null` ou vide. Une liste vide dans un `Contains()` peut annuler le filtrage et produire des résultats inattendus.
 
 ### Problème
 
 ```csharp
-// VIOLATION : Liste potentiellement vide dans une requête ORM
+// VIOLATION : Liste potentiellement vide dans un Where
 public IEnumerable<User> GetUsers(List<int> ids)
 {
     return Query<User>().Where(u => ids.Contains(u.Id));
-    // Si ids est vide -> la clause WHERE est annulée -> toutes les lignes retournées !
+    // Si ids est vide -> le filtrage est annulé -> résultats inattendus !
 }
+
+// VIOLATION : Même problème sur une collection en mémoire
+var codes = listeSource.Select(i => i.Code).ToList();
+var resultat = autreListe
+    .Where(i => codes.Contains(i.Code))
+    .ToList();
 ```
 
 ### Solution

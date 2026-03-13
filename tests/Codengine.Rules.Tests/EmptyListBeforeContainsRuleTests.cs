@@ -123,10 +123,10 @@ public class Item { public long? Id { get; set; } }
     }
 
     [Fact]
-    public void Should_Not_Detect_In_Memory_Linq_Without_Check()
+    public void Should_Detect_In_Memory_Linq_Without_Check()
     {
-        // Collection en mémoire (GetItems().Where) → ne doit PAS détecter,
-        // même sans vérification : Contains sur une liste vide retourne false sans effet de bord SQL.
+        // Collection en mémoire (GetItems().Where) → doit détecter,
+        // une liste vide dans Contains() annule le filtrage.
         var code = @"
 using System.Linq;
 using System.Collections.Generic;
@@ -146,7 +146,8 @@ public class Item { public int Id { get; set; } }
 
         var violations = AnalyzeCode(code);
 
-        Assert.Empty(violations);
+        Assert.Single(violations);
+        Assert.Equal("COD002", violations[0].RuleId);
     }
 
     private List<Violation> AnalyzeCode(string code)

@@ -7,17 +7,16 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace Codengine.Rules.CSharp;
 
 /// <summary>
-/// Vérifie qu'avant d'utiliser liste.Contains() dans un Query&lt;&gt;().Where(),
+/// Vérifie qu'avant d'utiliser liste.Contains() dans un .Where(),
 /// la liste est vérifiée pour ne pas être nulle ou vide.
-/// Une liste vide dans un Contains() ORM peut annuler la clause WHERE et retourner toutes les lignes de la table.
-/// Ne s'applique qu'aux chaînes ORM démarrant par Query&lt;&gt;, Table&lt;&gt;, Set&lt;&gt;, GetTable, From.
+/// Une liste vide dans un Contains() peut annuler le filtrage et produire des résultats inattendus.
 /// </summary>
 public class EmptyListBeforeContainsRule : RuleBase
 {
     public override string Id => "COD002";
     public override string Name => "EmptyListBeforeContains";
     public override string Description =>
-        "Une liste utilisée dans Contains() au sein d'un Query<>().Where() ORM doit être vérifiée pour null/vide avant utilisation. Une liste vide peut annuler la clause WHERE et retourner toutes les lignes de la table.";
+        "Une liste utilisée dans Contains() au sein d'un .Where() doit être vérifiée pour null/vide avant utilisation. Une liste vide peut annuler le filtrage et produire des résultats inattendus.";
     public override RuleSeverity Severity => RuleSeverity.Error;
     public override string Category => "NullSafety";
 
@@ -33,10 +32,6 @@ public class EmptyListBeforeContainsRule : RuleBase
 
         foreach (var whereInvocation in whereInvocations)
         {
-            // Vérifier si c'est un Query<>().Where() ou similaire
-            if (!IsQueryOrLinqChain(whereInvocation))
-                continue;
-
             // Chercher les appels Contains() dans le lambda du Where
             var containsInvocations = whereInvocation.DescendantNodes()
                 .OfType<InvocationExpressionSyntax>()
@@ -83,69 +78,6 @@ public class EmptyListBeforeContainsRule : RuleBase
         {
             MemberAccessExpressionSyntax memberAccess => memberAccess.Name.Identifier.Text == "Contains",
             _ => false
-        };
-    }
-
-    private static bool IsQueryOrLinqChain(InvocationExpressionSyntax whereInvocation)
-    {
-        // Vérifier si c'est une chaîne qui commence par Query<>(),
-        // ou un IQueryable/IEnumerable avec LINQ
-        var expressionChain = GetExpressionChain(whereInvocation);
-
-        // Chercher uniquement les méthodes de démarrage de requête ORM
-        // Query<>, Table<>, Set<>, GetTable, From — pas les collections LINQ en mémoire
-        // Supporte aussi la forme constructeur : new Query<T>(...).Where(...)
-        foreach (var expr in expressionChain)
-        {
-            if (expr is InvocationExpressionSyntax invocation)
-            {
-                var methodName = GetMethodName(invocation);
-                if (methodName is "Query" or "Table" or "Set" or "GetTable" or "From")
-                    return true;
-            }
-
-            if (expr is ObjectCreationExpressionSyntax objectCreation)
-            {
-                var typeName = objectCreation.Type switch
-                {
-                    GenericNameSyntax genericName => genericName.Identifier.Text,
-                    IdentifierNameSyntax identifier => identifier.Identifier.Text,
-                    _ => null
-                };
-                if (typeName is "Query" or "Table" or "Set")
-                    return true;
-            }
-        }
-
-        // Par défaut : ne pas flaguer — la règle ne cible que les chaînes ORM explicites
-        return false;
-    }
-
-    private static IEnumerable<ExpressionSyntax> GetExpressionChain(ExpressionSyntax expression)
-    {
-        var current = expression;
-        while (current != null)
-        {
-            yield return current;
-
-            current = current switch
-            {
-                InvocationExpressionSyntax invocation => invocation.Expression,
-                MemberAccessExpressionSyntax memberAccess => memberAccess.Expression,
-                ObjectCreationExpressionSyntax => null, // fin de chaîne, déjà yielded
-                _ => null
-            };
-        }
-    }
-
-    private static string? GetMethodName(InvocationExpressionSyntax invocation)
-    {
-        return invocation.Expression switch
-        {
-            MemberAccessExpressionSyntax memberAccess => memberAccess.Name.Identifier.Text,
-            GenericNameSyntax genericName => genericName.Identifier.Text,
-            IdentifierNameSyntax identifier => identifier.Identifier.Text,
-            _ => null
         };
     }
 
