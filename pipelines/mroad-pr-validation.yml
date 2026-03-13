@@ -45,7 +45,7 @@ steps:
   # ── Cache build Codengine ──────────────────────────────────────────────────
   - task: Cache@2
     inputs:
-      key: 'codengine-build | "$(Agent.OS)" | "v1"'
+      key: 'codengine-build | "$(Agent.OS)" | "v2"'
       restoreKeys: |
         codengine-build | "$(Agent.OS)"
       path: $(CODENGINE_DIR)/src/Codengine.Cli/bin/Release/net9.0
