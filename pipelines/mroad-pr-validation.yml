@@ -8,6 +8,9 @@ pr:
 name: $(Date:yyyyMMdd).$(Rev:r) • PR $(System.PullRequest.PullRequestId) (codengine)
 appendCommitMessageToRunName: false
 
+# Permet le déclenchement manuel (Run pipeline) sans PR
+# Dans ce cas, seul le build de Codengine est validé (smoke test)
+
 pool:
   vmImage: ubuntu-latest
 
@@ -60,6 +63,10 @@ steps:
         dotnet restore "$(CODENGINE_DIR)/codengine.sln"
         dotnet build "$(CODENGINE_DIR)/codengine.sln" --no-restore -c Release -v minimal
       fi
+
+      # Smoke test : vérifier que Codengine s'exécute correctement
+      echo "--- Smoke test ---"
+      dotnet "$(CODENGINE_DLL)" list-rules
     displayName: Build Codengine
 
   # ── Télécharger uniquement les fichiers .cs modifiés par la PR ─────────────
@@ -123,6 +130,7 @@ steps:
     env:
       SYSTEM_ACCESSTOKEN: $(System.AccessToken)
     displayName: Download changed .cs files
+    condition: ne(variables['System.PullRequest.PullRequestId'], '')
 
   # ── Analyse Codengine ──────────────────────────────────────────────────────
   - script: |
@@ -182,6 +190,7 @@ steps:
       fi
     displayName: Codengine analyze
     continueOnError: true
+    condition: ne(variables['System.PullRequest.PullRequestId'], '')
 
   # ── Commentaire PR ─────────────────────────────────────────────────────────
   - script: |
@@ -236,11 +245,11 @@ steps:
     displayName: Post PR comment
     condition: and(always(), ne(variables['System.PullRequest.PullRequestId'], ''))
 
-  # ── Fail si erreurs ────────────────────────────────────────────────────────
+  # ── Fail si erreurs (uniquement en contexte PR) ────────────────────────────
   - script: |
       [ "$(ANALYZE_PASSED)" != "true" ] && \
         echo "##vso[task.logissue type=error]Codengine a détecté des erreurs sur les fichiers modifiés." && \
         exit 1
       echo "Analyse OK."
     displayName: Fail pipeline if errors
-    condition: always()
+    condition: and(always(), ne(variables['System.PullRequest.PullRequestId'], ''))
