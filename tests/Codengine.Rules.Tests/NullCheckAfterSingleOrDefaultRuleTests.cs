@@ -184,6 +184,136 @@ public class Test
         Assert.Empty(violations);
     }
 
+    [Fact]
+    public void Should_Report_Violation_At_Usage_Line_Not_Declaration()
+    {
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Test
+{
+    public void Method()
+    {
+        var list = new List<string> { ""a"", ""b"" };
+        var item = list.SingleOrDefault(x => x == ""a"");
+        var x = 42;
+        var length = item.Length;
+    }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Single(violations);
+        // La violation doit pointer sur item.Length, pas sur SingleOrDefault
+        Assert.Equal(12, violations[0].Line);
+    }
+
+    [Fact]
+    public void Should_Not_Detect_When_Variable_Is_Reassigned()
+    {
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Test
+{
+    public void Method()
+    {
+        var list = new List<string> { ""a"", ""b"" };
+        var item = list.SingleOrDefault(x => x == ""a"");
+        item = ""safe value"";
+        var length = item.Length;
+    }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Should_Not_Detect_When_Guard_Clause_In_Parent_Scope()
+    {
+        // Guard clause dans un bloc parent (try) protège les usages dans les blocs enfants
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Test
+{
+    public void Method()
+    {
+        var list = new List<string> { ""a"", ""b"" };
+        var item = list.SingleOrDefault(x => x == ""a"");
+        if (item == null) throw new System.Exception();
+
+        foreach (var x in list)
+        {
+            var length = item.Length;
+        }
+    }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Should_Detect_Usage_In_Else_Without_Check()
+    {
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Test
+{
+    public void Method()
+    {
+        var list = new List<string> { ""a"", ""b"" };
+        var item = list.SingleOrDefault(x => x == ""a"");
+
+        if (true)
+        {
+            var x = 1;
+        }
+        else
+        {
+            var length = item.Length;
+        }
+    }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Single(violations);
+    }
+
+    [Fact]
+    public void Should_Not_Detect_When_Only_Passed_As_Argument()
+    {
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Test
+{
+    public void Method()
+    {
+        var list = new List<string> { ""a"", ""b"" };
+        var item = list.SingleOrDefault(x => x == ""a"");
+        DoSomething(item);
+    }
+
+    private void DoSomething(string s) { }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Empty(violations);
+    }
+
     private List<Violation> AnalyzeCode(string code)
     {
         var tree = CSharpSyntaxTree.ParseText(code);

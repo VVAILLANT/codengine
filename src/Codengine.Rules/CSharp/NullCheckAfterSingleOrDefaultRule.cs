@@ -9,6 +9,8 @@ namespace Codengine.Rules.CSharp;
 /// <summary>
 /// Vérifie qu'après chaque SingleOrDefault() ou FirstOrDefault(),
 /// le résultat est vérifié pour null avant utilisation.
+/// Fonctionne comme un mini-analyseur de flux : chaque usage de la variable
+/// est vérifié individuellement en remontant l'arbre syntaxique.
 /// </summary>
 public class NullCheckAfterSingleOrDefaultRule : RuleBase
 {
@@ -26,30 +28,33 @@ public class NullCheckAfterSingleOrDefaultRule : RuleBase
         var root = context.SyntaxTree.GetRoot();
         var violations = new List<Violation>();
 
-        // Trouver toutes les invocations de méthodes
         var invocations = root.DescendantNodes()
-            .OfType<InvocationExpressionSyntax>();
+            .OfType<InvocationExpressionSyntax>()
+            .Where(IsTargetMethod);
 
         foreach (var invocation in invocations)
         {
-            if (!IsTargetMethod(invocation))
-                continue;
-
             var variableDeclaration = GetVariableDeclaration(invocation);
             if (variableDeclaration == null)
                 continue;
 
             var variableName = variableDeclaration.Identifier.Text;
-            var containingBlock = GetContainingBlock(invocation);
 
-            if (containingBlock == null)
+            // Scope de recherche : méthode, constructeur, accesseur ou fonction locale
+            var scope = invocation.Ancestors()
+                .FirstOrDefault(n => n is BaseMethodDeclarationSyntax
+                                  or AccessorDeclarationSyntax
+                                  or LocalFunctionStatementSyntax);
+
+            if (scope == null)
                 continue;
 
-            if (!HasNullCheckBeforeUsage(containingBlock, variableName, invocation))
+            var firstUnsafe = FindFirstUnsafeUsage(scope, variableName, invocation);
+            if (firstUnsafe != null)
             {
                 violations.Add(CreateViolation(
                     context,
-                    invocation,
+                    firstUnsafe,
                     $"La variable '{variableName}' issue de {GetMethodName(invocation)}() doit être vérifiée pour null avant utilisation.",
                     $"Ajouter: if ({variableName} == null) return; // ou gérer le cas null"));
             }
@@ -57,6 +62,53 @@ public class NullCheckAfterSingleOrDefaultRule : RuleBase
 
         return violations;
     }
+
+    /// <summary>
+    /// Parcourt toutes les utilisations de la variable après la déclaration,
+    /// dans l'ordre du code, et retourne la première utilisation non protégée.
+    /// </summary>
+    private static IdentifierNameSyntax? FindFirstUnsafeUsage(
+        SyntaxNode scope,
+        string variableName,
+        InvocationExpressionSyntax declaration)
+    {
+        var declarationEnd = declaration.Span.End;
+
+        var usages = scope.DescendantNodes()
+            .OfType<IdentifierNameSyntax>()
+            .Where(id => id.Identifier.Text == variableName && id.SpanStart > declarationEnd)
+            .OrderBy(id => id.SpanStart);
+
+        foreach (var usage in usages)
+        {
+            // Réassignation (item = ...) → la variable change de valeur, on arrête
+            if (IsReassignment(usage))
+                return null;
+
+            // Seuls les accès membres directs (item.Foo) sont dangereux
+            // item?.Foo → ConditionalAccessExpression (pas MemberAccess) → ignoré
+            // item ?? x → BinaryExpression → ignoré
+            // Foo(item) → Argument → ignoré
+            if (usage.Parent is not MemberAccessExpressionSyntax memberAccess
+                || memberAccess.Expression != usage)
+                continue;
+
+            // Protégé par un if (item != null) ancêtre ?
+            if (IsInsideNullCheck(usage, variableName))
+                continue;
+
+            // Protégé par un guard clause (if item == null return/throw) avant ?
+            if (HasGuardClauseBefore(usage, variableName))
+                continue;
+
+            // Première utilisation non protégée trouvée
+            return usage;
+        }
+
+        return null;
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────────────
 
     private static bool IsTargetMethod(InvocationExpressionSyntax invocation)
     {
@@ -92,7 +144,6 @@ public class NullCheckAfterSingleOrDefaultRule : RuleBase
             parent = parent.Parent;
         }
 
-        // Chercher dans les ancêtres pour une déclaration de variable
         var equalsClause = invocation.Ancestors()
             .OfType<EqualsValueClauseSyntax>()
             .FirstOrDefault();
@@ -100,89 +151,19 @@ public class NullCheckAfterSingleOrDefaultRule : RuleBase
         return equalsClause?.Parent as VariableDeclaratorSyntax;
     }
 
-    private static SyntaxNode? GetContainingBlock(SyntaxNode node)
+    /// <summary>
+    /// Vérifie si l'identifiant est une réassignation (item = newValue).
+    /// </summary>
+    private static bool IsReassignment(IdentifierNameSyntax usage)
     {
-        return node.Ancestors()
-            .FirstOrDefault(n => n is BlockSyntax or MethodDeclarationSyntax or LocalFunctionStatementSyntax);
+        return usage.Parent is AssignmentExpressionSyntax assignment
+            && assignment.Left == usage;
     }
 
-    private static bool HasNullCheckBeforeUsage(SyntaxNode containingBlock, string variableName, InvocationExpressionSyntax declaration)
-    {
-        var statements = containingBlock.DescendantNodes()
-            .OfType<StatementSyntax>()
-            .ToList();
-
-        var declarationIndex = statements.FindIndex(s => s.Contains(declaration));
-        if (declarationIndex < 0)
-            return true; // Si on ne trouve pas, on ne signale pas d'erreur
-
-        // Vérifier les statements après la déclaration
-        for (int i = declarationIndex + 1; i < statements.Count; i++)
-        {
-            var statement = statements[i];
-
-            // Guard clause: if (var == null) return/throw → protège tout le reste
-            if (IsNullGuardClause(statement, variableName))
-                return true;
-
-            // Vérifier si la variable est utilisée sans protection
-            if (IsVariableUsedUnsafely(statement, variableName))
-                return false;
-        }
-
-        return true; // Pas d'utilisation après = OK
-    }
-
-    private static bool IsNullGuardClause(StatementSyntax statement, string variableName)
-    {
-        if (statement is not IfStatementSyntax ifStatement)
-            return false;
-
-        var condition = ifStatement.Condition.ToString();
-
-        // if (var == null) ou if (var is null) → guard clause potentielle
-        bool checksForNull =
-            condition.Contains($"{variableName} == null") ||
-            condition.Contains($"{variableName} is null") ||
-            condition.Contains($"null == {variableName}");
-
-        if (!checksForNull)
-            return false;
-
-        // Le body doit contenir return ou throw pour être un guard clause
-        var bodyText = ifStatement.Statement.ToString();
-        return bodyText.Contains("return") || bodyText.Contains("throw");
-    }
-
-    private static bool IsVariableUsedUnsafely(StatementSyntax statement, string variableName)
-    {
-        // Si la variable est utilisée avec un accès membre direct (sans ?.)
-        var identifiers = statement.DescendantNodes()
-            .OfType<IdentifierNameSyntax>()
-            .Where(id => id.Identifier.Text == variableName);
-
-        foreach (var identifier in identifiers)
-        {
-            // Vérifier si c'est un accès membre direct
-            if (identifier.Parent is MemberAccessExpressionSyntax memberAccess &&
-                memberAccess.Expression == identifier)
-            {
-                // Vérifier si ce n'est pas un accès conditionnel (?.)
-                var fullExpression = memberAccess.ToString();
-                if (!fullExpression.StartsWith($"{variableName}?."))
-                {
-                    // Vérifier si l'usage est protégé par un if (variable != null) ancêtre
-                    if (IsInsideNullCheck(identifier, variableName))
-                        continue;
-
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
+    /// <summary>
+    /// Remonte l'arbre syntaxique pour vérifier si l'usage est à l'intérieur
+    /// d'un if (variable != null) / if (variable is not null).
+    /// </summary>
     private static bool IsInsideNullCheck(SyntaxNode node, string variableName)
     {
         var current = node.Parent;
@@ -201,5 +182,53 @@ public class NullCheckAfterSingleOrDefaultRule : RuleBase
             current = current.Parent;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Remonte les blocs parents pour vérifier si un guard clause
+    /// (if variable == null return/throw) précède l'usage dans le même scope ou un scope parent.
+    /// </summary>
+    private static bool HasGuardClauseBefore(SyntaxNode usage, string variableName)
+    {
+        var current = usage;
+        while (current != null)
+        {
+            if (current.Parent is BlockSyntax block)
+            {
+                foreach (var statement in block.Statements)
+                {
+                    // Ne regarder que les statements AVANT le nœud courant
+                    if (statement.SpanStart >= current.SpanStart)
+                        break;
+
+                    if (IsNullGuardClause(statement, variableName))
+                        return true;
+                }
+            }
+            current = current.Parent;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Vérifie si un statement est un guard clause : if (var == null) { return/throw; }
+    /// </summary>
+    private static bool IsNullGuardClause(StatementSyntax statement, string variableName)
+    {
+        if (statement is not IfStatementSyntax ifStatement)
+            return false;
+
+        var condition = ifStatement.Condition.ToString();
+
+        bool checksForNull =
+            condition.Contains($"{variableName} == null") ||
+            condition.Contains($"{variableName} is null") ||
+            condition.Contains($"null == {variableName}");
+
+        if (!checksForNull)
+            return false;
+
+        var bodyText = ifStatement.Statement.ToString();
+        return bodyText.Contains("return") || bodyText.Contains("throw");
     }
 }
