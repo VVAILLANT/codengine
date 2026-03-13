@@ -60,8 +60,6 @@ steps:
   - task: Cache@2
     inputs:
       key: 'codengine-build | "$(Agent.OS)" | $(Agent.TempDirectory)/Codengine.Cli.csproj'
-      restoreKeys: |
-        codengine-build | "$(Agent.OS)"
       path: $(CODENGINE_DIR)/src/Codengine.Cli/bin/Release/net9.0
     displayName: Cache build Codengine
 
@@ -165,7 +163,9 @@ steps:
       ALL_VIOLATIONS="[]"
 
       # Analyser chaque fichier .cs téléchargé
-      find "$(CHANGED_DIR)" -name "*.cs" | while IFS= read -r filepath; do
+      # Note: process substitution < <(...) pour éviter le sous-shell du pipe
+      # qui empêcherait les variables de remonter après la boucle
+      while IFS= read -r filepath; do
         TMP_REPORT="$(Agent.TempDirectory)/report_$(echo "$filepath" | md5sum | cut -c1-8).json"
         dotnet "$(CODENGINE_DLL)" analyze "$filepath" -f json -o "$TMP_REPORT" 2>/dev/null
 
@@ -179,7 +179,7 @@ steps:
           FILE_VIOLS=$(jq '.violations' "$TMP_REPORT")
           ALL_VIOLATIONS=$(echo "$ALL_VIOLATIONS $FILE_VIOLS" | jq -s 'add')
         fi
-      done
+      done < <(find "$(CHANGED_DIR)" -name "*.cs")
 
       # Rapport consolidé
       jq -n \
