@@ -120,7 +120,7 @@ public class HtmlReporter : IReporter
                 // En-tête cliquable
                 sb.AppendLine($"                <div class=\"file-header\" onclick=\"toggleFile('{detailsId}', this)\">");
                 sb.AppendLine($"                    <span class=\"file-path\">{HttpUtility.HtmlEncode(fileGroup.Key)}</span>");
-                sb.AppendLine($"                    <button class=\"copy-btn\" onclick=\"copyText(event, {System.Text.Json.JsonSerializer.Serialize(fileGroup.Key)})\" title=\"Copier le chemin\">📋</button>");
+                sb.AppendLine($"                    <button class=\"copy-btn\" data-copy=\"{HttpUtility.HtmlEncode(fileGroup.Key)}\" title=\"Copier le chemin\"><svg aria-hidden=\"true\" height=\"14\" width=\"14\" viewBox=\"0 0 16 16\"><path fill=\"currentColor\" d=\"M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z\"/><path fill=\"currentColor\" d=\"M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z\"/></svg></button>");
                 sb.AppendLine($"                    <div class=\"file-badges\">");
                 if (criticals > 0) sb.AppendLine($"                        <span class=\"badge critical\">{criticals}</span>");
                 if (errors > 0)    sb.AppendLine($"                        <span class=\"badge error\">{errors}</span>");
@@ -149,7 +149,7 @@ public class HtmlReporter : IReporter
                     {
                         var firstLine = violation.CodeSnippet.Split('\n')[0].Trim();
                         sb.AppendLine("                            <tr class=\"snippet-row\">");
-                        sb.AppendLine($"                                <td colspan=\"4\"><div class=\"snippet-wrapper\"><button class=\"copy-btn copy-btn-snippet\" onclick=\"copyText(event, {System.Text.Json.JsonSerializer.Serialize(firstLine)})\" title=\"Copier la première ligne\">📋</button><pre class=\"snippet\">{HttpUtility.HtmlEncode(violation.CodeSnippet)}</pre></div></td>");
+                        sb.AppendLine($"                                <td colspan=\"4\"><div class=\"snippet-wrapper\"><button class=\"copy-btn copy-btn-snippet\" data-copy=\"{HttpUtility.HtmlEncode(firstLine)}\" title=\"Copier la première ligne\"><svg aria-hidden=\"true\" height=\"14\" width=\"14\" viewBox=\"0 0 16 16\"><path fill=\"currentColor\" d=\"M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z\"/><path fill=\"currentColor\" d=\"M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z\"/></svg></button><pre class=\"snippet\">{HttpUtility.HtmlEncode(violation.CodeSnippet)}</pre></div></td>");
                         sb.AppendLine("                            </tr>");
                     }
 
@@ -191,22 +191,22 @@ public class HtmlReporter : IReporter
         sb.AppendLine("            el.style.display = open ? 'none' : 'block';");
         sb.AppendLine("            icon.textContent = open ? '▶' : '▼';");
         sb.AppendLine("        }");
-        sb.AppendLine("        function copyText(event, text) {");
-        sb.AppendLine("            event.stopPropagation();");
-        sb.AppendLine("            var btn = event.currentTarget;");
-        sb.AppendLine("            function flash() { btn.classList.add('copied'); setTimeout(function() { btn.classList.remove('copied'); }, 1500); }");
-        sb.AppendLine("            var ta = document.createElement('textarea');");
-        sb.AppendLine("            ta.value = text;");
-        sb.AppendLine("            ta.style.position = 'fixed';");
-        sb.AppendLine("            ta.style.left = '-9999px';");
-        sb.AppendLine("            ta.style.top = '-9999px';");
-        sb.AppendLine("            document.body.appendChild(ta);");
-        sb.AppendLine("            ta.focus();");
-        sb.AppendLine("            ta.select();");
-        sb.AppendLine("            var ok = document.execCommand('copy');");
-        sb.AppendLine("            document.body.removeChild(ta);");
-        sb.AppendLine("            if (ok) { flash(); return; }");
-        sb.AppendLine("            if (navigator.clipboard) { navigator.clipboard.writeText(text).then(flash).catch(function(){}); }");
+        sb.AppendLine("        document.querySelectorAll('.copy-btn').forEach(function(btn) {");
+        sb.AppendLine("            btn.addEventListener('click', function(e) {");
+        sb.AppendLine("                e.stopPropagation();");
+        sb.AppendLine("                var text = btn.getAttribute('data-copy');");
+        sb.AppendLine("                var ta = document.createElement('textarea');");
+        sb.AppendLine("                ta.value = text;");
+        sb.AppendLine("                ta.style.position = 'fixed';");
+        sb.AppendLine("                ta.style.left = '-9999px';");
+        sb.AppendLine("                document.body.appendChild(ta);");
+        sb.AppendLine("                ta.focus();");
+        sb.AppendLine("                ta.select();");
+        sb.AppendLine("                document.execCommand('copy');");
+        sb.AppendLine("                document.body.removeChild(ta);");
+        sb.AppendLine("                btn.classList.add('copied');");
+        sb.AppendLine("                setTimeout(function() { btn.classList.remove('copied'); }, 1500);");
+        sb.AppendLine("            });");
         sb.AppendLine("        }");
         sb.AppendLine("    </script>");
 
@@ -267,13 +267,13 @@ public class HtmlReporter : IReporter
         .badge.error { background: #fd7e14; color: white; }
         .badge.warning { background: #ffc107; color: #333; }
         .badge.info { background: #17a2b8; color: white; }
-        .copy-btn { background: transparent; border: 1px solid #aaa; border-radius: 4px; cursor: pointer; font-size: 0.85rem; padding: 0.1rem 0.4rem; color: #555; line-height: 1; flex-shrink: 0; transition: background 0.15s, color 0.15s; }
-        .copy-btn:hover { background: #e0e0e0; color: #333; }
+        .copy-btn { background: transparent; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; padding: 0.25rem; color: #666; line-height: 0; flex-shrink: 0; transition: background 0.15s, color 0.15s, border-color 0.15s; display: inline-flex; align-items: center; justify-content: center; }
+        .copy-btn:hover { background: #e0e0e0; color: #333; border-color: #999; }
         .copy-btn.copied { background: #28a745; color: white; border-color: #28a745; }
         .snippet-row td { padding: 0; }
         .snippet-wrapper { position: relative; }
-        .copy-btn-snippet { position: absolute; top: 0.4rem; right: 0.4rem; border-color: #555; color: #aaa; }
-        .copy-btn-snippet:hover { background: #444; color: white; }
+        .copy-btn-snippet { position: absolute; top: 0.4rem; right: 0.4rem; border-color: #555; color: #999; }
+        .copy-btn-snippet:hover { background: #444; color: white; border-color: #888; }
         .snippet { background: #2d2d2d; color: #f8f8f2; padding: 1rem; margin: 0; border-radius: 0 0 4px 4px; overflow-x: auto; font-size: 0.85rem; }
         .suggestion { background: #d4edda; color: #155724; padding: 0.75rem; border-radius: 4px; font-size: 0.85rem; }
         .success { text-align: center; padding: 3rem; }
