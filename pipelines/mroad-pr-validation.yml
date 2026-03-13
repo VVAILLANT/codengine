@@ -33,19 +33,29 @@ steps:
       version: "9.x"
     displayName: Use .NET 9 SDK
 
+  # ── Télécharger le .csproj de Codengine pour versioner le cache ───────────
+  # Quand publish-tool.sh bumpe la version, la clé de cache change automatiquement
+  - script: |
+      curl -sf https://raw.githubusercontent.com/VVAILLANT/codengine/master/src/Codengine.Cli/Codengine.Cli.csproj \
+        -o "$(Agent.TempDirectory)/Codengine.Cli.csproj"
+      echo "Version Codengine :"
+      grep -o '<Version>[^<]*</Version>' "$(Agent.TempDirectory)/Codengine.Cli.csproj"
+    displayName: Fetch Codengine version
+
   # ── Cache NuGet Codengine ──────────────────────────────────────────────────
   - task: Cache@2
     inputs:
-      key: 'codengine-nuget | "$(Agent.OS)"'
+      key: 'codengine-nuget | "$(Agent.OS)" | $(Agent.TempDirectory)/Codengine.Cli.csproj'
       restoreKeys: |
         codengine-nuget | "$(Agent.OS)"
       path: $(NUGET_PACKAGES)
     displayName: Cache NuGet (Codengine)
 
   # ── Cache build Codengine ──────────────────────────────────────────────────
+  # Clé basée sur le hash du .csproj → invalidation automatique à chaque nouvelle version
   - task: Cache@2
     inputs:
-      key: 'codengine-build | "$(Agent.OS)" | "v2"'
+      key: 'codengine-build | "$(Agent.OS)" | $(Agent.TempDirectory)/Codengine.Cli.csproj'
       restoreKeys: |
         codengine-build | "$(Agent.OS)"
       path: $(CODENGINE_DIR)/src/Codengine.Cli/bin/Release/net9.0
