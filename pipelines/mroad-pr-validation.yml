@@ -44,6 +44,9 @@ steps:
     displayName: Fetch Codengine version
 
   # ── Cache NuGet Codengine ──────────────────────────────────────────────────
+  - script: mkdir -p $(NUGET_PACKAGES)
+    displayName: Ensure NuGet cache dir exists
+
   - task: Cache@2
     inputs:
       key: 'codengine-nuget | "$(Agent.OS)" | $(Agent.TempDirectory)/Codengine.Cli.csproj'
