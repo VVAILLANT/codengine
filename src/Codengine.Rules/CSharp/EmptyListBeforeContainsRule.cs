@@ -94,12 +94,25 @@ public class EmptyListBeforeContainsRule : RuleBase
 
         // Chercher uniquement les méthodes de démarrage de requête ORM
         // Query<>, Table<>, Set<>, GetTable, From — pas les collections LINQ en mémoire
+        // Supporte aussi la forme constructeur : new Query<T>(...).Where(...)
         foreach (var expr in expressionChain)
         {
             if (expr is InvocationExpressionSyntax invocation)
             {
                 var methodName = GetMethodName(invocation);
                 if (methodName is "Query" or "Table" or "Set" or "GetTable" or "From")
+                    return true;
+            }
+
+            if (expr is ObjectCreationExpressionSyntax objectCreation)
+            {
+                var typeName = objectCreation.Type switch
+                {
+                    GenericNameSyntax genericName => genericName.Identifier.Text,
+                    IdentifierNameSyntax identifier => identifier.Identifier.Text,
+                    _ => null
+                };
+                if (typeName is "Query" or "Table" or "Set")
                     return true;
             }
         }
@@ -119,6 +132,7 @@ public class EmptyListBeforeContainsRule : RuleBase
             {
                 InvocationExpressionSyntax invocation => invocation.Expression,
                 MemberAccessExpressionSyntax memberAccess => memberAccess.Expression,
+                ObjectCreationExpressionSyntax => null, // fin de chaîne, déjà yielded
                 _ => null
             };
         }

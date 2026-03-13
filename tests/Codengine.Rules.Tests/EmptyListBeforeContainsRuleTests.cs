@@ -91,6 +91,38 @@ public class Item { public int Id { get; set; } }
     }
 
     [Fact]
+    public void Should_Detect_Missing_Check_In_ORM_Constructor()
+    {
+        // new Query<T>(...).Where() sans vérification → doit détecter
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Test
+{
+    public void Method(List<long?> idsCommande)
+    {
+        var result = new Query<Item>(""connStr"")
+            .Where(i => idsCommande.Contains(i.Id))
+            .ToList();
+    }
+}
+
+public class Query<T> {
+    public Query(string conn) {}
+    public Query<T> Where(System.Func<T,bool> f) => this;
+    public System.Collections.Generic.List<T> ToList() => new();
+}
+public class Item { public long? Id { get; set; } }
+";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.NotEmpty(violations);
+        Assert.Contains(violations, v => v.RuleId == "COD002");
+    }
+
+    [Fact]
     public void Should_Not_Detect_In_Memory_Linq_Without_Check()
     {
         // Collection en mémoire (GetItems().Where) → ne doit PAS détecter,
