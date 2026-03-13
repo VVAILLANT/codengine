@@ -65,6 +65,14 @@ class Program
             new[] { "-c", "--config" },
             "Chemin vers le fichier de configuration");
 
+        var tagOption = new Option<bool>(
+            "--tag",
+            "Ajouter un commentaire // codengine[RULE] sur les lignes en violation");
+
+        var untagOption = new Option<bool>(
+            "--untag",
+            "Retirer tous les commentaires codengine des fichiers source");
+
         var command = new Command("analyze", "Analyser le code source")
         {
             pathArgument,
@@ -72,7 +80,9 @@ class Program
             formatOption,
             verboseOption,
             disableRulesOption,
-            configOption
+            configOption,
+            tagOption,
+            untagOption
         };
 
         command.SetHandler(async context =>
@@ -83,8 +93,10 @@ class Program
             var verbose = context.ParseResult.GetValueForOption(verboseOption);
             var disabledRules = context.ParseResult.GetValueForOption(disableRulesOption) ?? Array.Empty<string>();
             var configPath = context.ParseResult.GetValueForOption(configOption);
+            var tag = context.ParseResult.GetValueForOption(tagOption);
+            var untag = context.ParseResult.GetValueForOption(untagOption);
 
-            await RunAnalysisAsync(path, output, format, verbose, disabledRules, configPath);
+            await RunAnalysisAsync(path, output, format, verbose, disabledRules, configPath, tag, untag);
         });
 
         return command;
@@ -288,8 +300,19 @@ class Program
         string format,
         bool verbose,
         string[] disabledRules,
-        string? configPath)
+        string? configPath,
+        bool tag = false,
+        bool untag = false)
     {
+        if (untag)
+        {
+            PrintHeader();
+            Console.WriteLine($"Retrait des tags codengine dans: {Path.GetFullPath(path)}");
+            Console.WriteLine();
+            await RemoveTagsAsync(path);
+            return;
+        }
+
         PrintHeader();
         Console.WriteLine($"Analyse de: {Path.GetFullPath(path)}");
         Console.WriteLine();
@@ -351,7 +374,136 @@ class Program
 
         await reporter.ReportAsync(result, reporterOptions);
 
+        if (tag && result.TotalViolations > 0)
+        {
+            Console.WriteLine();
+            await ApplyTagsAsync(result);
+        }
+
         Environment.ExitCode = result.HasErrors ? 1 : 0;
+    }
+
+    private const string TagPrefix = "// codengine[";
+
+    private static readonly byte[] Utf8Bom = { 0xEF, 0xBB, 0xBF };
+
+    /// <summary>
+    /// Lit un fichier texte en préservant exactement ses octets originaux.
+    /// - Avec BOM UTF-8 : décode en UTF-8, réécrit avec BOM.
+    /// - Sans BOM : utilise Latin1 comme encodage transparent (byte N → char N → byte N),
+    ///   ce qui préserve les accents qu'ils soient en UTF-8 sans BOM ou en ANSI/Windows-1252.
+    ///   C'est safe car les opérations de tag/untag n'utilisent que des caractères ASCII.
+    /// </summary>
+    private static async Task<(string content, System.Text.Encoding encoding)> ReadFileAsync(string filePath)
+    {
+        var rawBytes = await File.ReadAllBytesAsync(filePath);
+        var hasBom = rawBytes.Length >= 3
+            && rawBytes[0] == Utf8Bom[0]
+            && rawBytes[1] == Utf8Bom[1]
+            && rawBytes[2] == Utf8Bom[2];
+        var encoding = hasBom
+            ? new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true)
+            : System.Text.Encoding.Latin1;
+        var content = encoding.GetString(rawBytes, hasBom ? 3 : 0, rawBytes.Length - (hasBom ? 3 : 0));
+        return (content, encoding);
+    }
+
+    private static async Task ApplyTagsAsync(Core.Models.AnalysisResult result)
+    {
+        Console.WriteLine("Application des tags codengine...");
+        var taggedCount = 0;
+
+        foreach (var group in result.Violations.GroupBy(v => v.FilePath))
+        {
+            var filePath = group.Key;
+            if (!File.Exists(filePath)) continue;
+
+            var (content, encoding) = await ReadFileAsync(filePath);
+            var lineEnding = content.Contains("\r\n") ? "\r\n" : "\n";
+            var lines = content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+
+            // Retirer les tags existants (idempotent)
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var idx = lines[i].IndexOf(TagPrefix, StringComparison.Ordinal);
+                if (idx >= 0)
+                    lines[i] = lines[i][..idx].TrimEnd();
+            }
+
+            // Ajouter les nouveaux tags
+            foreach (var lineGroup in group.GroupBy(v => v.Line))
+            {
+                var lineIndex = lineGroup.Key - 1;
+                if (lineIndex < 0 || lineIndex >= lines.Length) continue;
+
+                var ruleIds = string.Join(", ", lineGroup.Select(v => v.RuleId).Distinct());
+                lines[lineIndex] = lines[lineIndex].TrimEnd() + "  " + TagPrefix + ruleIds + "]";
+            }
+
+            await File.WriteAllTextAsync(filePath, string.Join(lineEnding, lines), encoding);
+            taggedCount++;
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"  Tagué: {filePath}");
+            Console.ResetColor();
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"{taggedCount} fichier(s) tagué(s). Utilisez --untag pour retirer les tags.");
+    }
+
+    private static async Task RemoveTagsAsync(string path)
+    {
+        IEnumerable<string> files;
+
+        if (File.Exists(path))
+        {
+            files = new[] { path };
+        }
+        else if (Directory.Exists(path))
+        {
+            files = Directory.GetFiles(path, "*.cs", SearchOption.AllDirectories)
+                .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")
+                         && !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"));
+        }
+        else
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"Chemin introuvable: {path}");
+            Console.ResetColor();
+            return;
+        }
+
+        var cleanedCount = 0;
+
+        foreach (var filePath in files)
+        {
+            var (content, encoding) = await ReadFileAsync(filePath);
+            if (!content.Contains(TagPrefix)) continue;
+
+            var lineEnding = content.Contains("\r\n") ? "\r\n" : "\n";
+            var lines = content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var idx = lines[i].IndexOf(TagPrefix, StringComparison.Ordinal);
+                if (idx >= 0)
+                    lines[i] = lines[i][..idx].TrimEnd();
+            }
+
+            await File.WriteAllTextAsync(filePath, string.Join(lineEnding, lines), encoding);
+            cleanedCount++;
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"  Nettoyé: {filePath}");
+            Console.ResetColor();
+        }
+
+        if (cleanedCount == 0)
+            Console.WriteLine("Aucun tag codengine trouvé.");
+        else
+        {
+            Console.WriteLine();
+            Console.WriteLine($"{cleanedCount} fichier(s) nettoyé(s).");
+        }
     }
 
     private static async Task RunFixAsync(string path, bool dryRun, string[] rules)

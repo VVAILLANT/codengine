@@ -43,6 +43,8 @@ codengine analyze [path] [options]
 | `--verbose` | `-v` | Afficher les suggestions de correction |
 | `--disable` | `-d` | Règles à désactiver (séparées par virgule) |
 | `--config` | `-c` | Chemin du fichier de configuration |
+| `--tag` | | Annoter les lignes en violation avec un commentaire `// codengine[RULE]` |
+| `--untag` | | Retirer tous les commentaires codengine des fichiers source |
 
 ### Exemples
 
@@ -68,9 +70,41 @@ codengine analyze ./src -v
 # Utiliser un fichier de configuration spécifique
 codengine analyze ./src -c ./custom-config.json
 
+# Annoter les lignes en violation directement dans les fichiers source
+codengine analyze ./src --tag
+
+# Retirer tous les tags codengine des fichiers source
+codengine analyze ./src --untag
+
 # Combiner plusieurs options
 codengine analyze ./src -f html -o rapport.html -v -d COD006
 ```
+
+### Annotations de code (`--tag` / `--untag`)
+
+L'option `--tag` ajoute un commentaire en fin de ligne sur chaque violation détectée :
+
+```csharp
+// Avant --tag
+var user = users.FirstOrDefault(u => u.Id == id);
+
+// Après --tag
+var user = users.FirstOrDefault(u => u.Id == id);  // codengine[COD001]
+
+// Plusieurs règles sur la même ligne
+catch {}  // codengine[COD005, COD006]
+```
+
+**Comportement :**
+- **Idempotent** : relancer `--tag` retire d'abord les anciens tags avant d'en ajouter de nouveaux
+- **Préserve les fins de ligne** (`\r\n` vs `\n`)
+- Fonctionne sur un fichier unique ou un répertoire entier
+
+**Nettoyage :**
+```bash
+codengine analyze ./src --untag
+```
+`--untag` ne relance pas l'analyse — il retire simplement tous les commentaires `// codengine[...]` trouvés dans les fichiers `.cs`.
 
 ### Codes de retour
 
