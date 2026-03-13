@@ -105,7 +105,9 @@ public class HtmlReporter : IReporter
             sb.AppendLine("        <section class=\"violations\">");
             sb.AppendLine("            <h2>Violations</h2>");
 
-            var groupedByFile = result.Violations.GroupBy(v => v.FilePath);
+            var groupedByFile = result.Violations
+                .GroupBy(v => v.FilePath)
+                .OrderBy(g => g.Key, Comparer<string>.Create(CompareFilePaths));
             var fileIndex = 0;
 
             foreach (var fileGroup in groupedByFile)
@@ -224,6 +226,45 @@ public class HtmlReporter : IReporter
         sb.AppendLine("</html>");
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Comparateur de chemins de fichiers reproduisant l'ordre Visual Studio 2022 (Modifications Git) :
+    /// - Les fichiers dans des sous-dossiers apparaissent avant les fichiers à la racine du même répertoire parent
+    /// - À profondeur identique, tri alphabétique insensible à la casse
+    /// Exemple : ...\Commande\File.cs avant ...\CommandeEDI\File.cs avant ...\File.cs
+    /// </summary>
+    private static int CompareFilePaths(string? x, string? y)
+    {
+        if (x == y) return 0;
+        if (x == null) return -1;
+        if (y == null) return 1;
+
+        var sep = new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar };
+        var partsX = x.Split(sep, StringSplitOptions.RemoveEmptyEntries);
+        var partsY = y.Split(sep, StringSplitOptions.RemoveEmptyEntries);
+
+        int minLen = Math.Min(partsX.Length, partsY.Length);
+
+        for (int i = 0; i < minLen; i++)
+        {
+            int cmp = StringComparer.OrdinalIgnoreCase.Compare(partsX[i], partsY[i]);
+            if (cmp == 0) continue;
+
+            // Les segments divergent ici — déterminer si chacun pointe sur un sous-dossier ou un fichier
+            bool xIsFile = i == partsX.Length - 1;
+            bool yIsFile = i == partsY.Length - 1;
+
+            // X est dans un sous-dossier, Y est un fichier à ce niveau → X en premier
+            if (!xIsFile && yIsFile) return -1;
+            // X est un fichier à ce niveau, Y est dans un sous-dossier → Y en premier
+            if (xIsFile && !yIsFile) return 1;
+            // Même type (deux sous-dossiers ou deux fichiers) → alphabétique
+            return cmp;
+        }
+
+        // Préfixe commun : le chemin le moins profond en premier
+        return partsX.Length.CompareTo(partsY.Length);
     }
 
     private static string GetCss()
