@@ -25,6 +25,9 @@ public abstract class RuleBase : IRule
         var line = lineSpan.StartLinePosition.Line + 1;
         var column = lineSpan.StartLinePosition.Character + 1;
 
+        var sourceText = node.SyntaxTree?.GetText();
+        var lineText = sourceText?.Lines[lineSpan.StartLinePosition.Line].ToString().Trim();
+
         return new Violation
         {
             RuleId = Id,
@@ -34,7 +37,7 @@ public abstract class RuleBase : IRule
             Line = line,
             Column = column,
             Severity = Severity,
-            CodeSnippet = node.ToString(),
+            CodeSnippet = lineText ?? node.ToString(),
             SuggestedFix = suggestedFix
         };
     }
