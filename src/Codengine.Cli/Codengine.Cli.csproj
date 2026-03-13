@@ -9,7 +9,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>codengine</ToolCommandName>
     <PackageId>Codengine.Cli</PackageId>
-    <Version>1.0.16</Version>
+    <Version>1.0.17</Version>
   </PropertyGroup>
 
   <ItemGroup>
