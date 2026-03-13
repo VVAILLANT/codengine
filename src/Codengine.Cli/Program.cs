@@ -11,7 +11,8 @@ namespace Codengine.Cli;
 
 class Program
 {
-    private const string Version = "1.0.0";
+    private static readonly string Version =
+        typeof(Program).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
 
     static async Task<int> Main(string[] args)
     {
