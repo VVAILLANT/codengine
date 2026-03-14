@@ -1,3 +1,4 @@
+using Codengine.Core.IO;
 using Codengine.Core.Models;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -24,7 +25,7 @@ public class CodeFixerEngine
     {
         var summary = new FixSummary { FilePath = filePath };
 
-        var code = await File.ReadAllTextAsync(filePath, cancellationToken);
+        var (code, encoding) = await FileEncodingHelper.ReadFilePreservingEncodingAsync(filePath);
         var tree = CSharpSyntaxTree.ParseText(code, path: filePath, cancellationToken: cancellationToken);
         var currentCode = code;
 
@@ -68,7 +69,7 @@ public class CodeFixerEngine
 
         if (summary.Fixed > 0)
         {
-            await File.WriteAllTextAsync(filePath, currentCode, cancellationToken);
+            await File.WriteAllTextAsync(filePath, currentCode, encoding);
             summary.Modified = true;
         }
 
