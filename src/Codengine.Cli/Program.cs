@@ -1,11 +1,6 @@
 using System.CommandLine;
-using Codengine.Connectors.Oracle;
-using Codengine.Core.Configuration;
-using Codengine.Core.Engine;
-using Codengine.Core.Fixes;
-using Codengine.Reporters;
+using Codengine.Core.Models;
 using Codengine.Rules.Abstractions;
-using Codengine.Rules.Fixes;
 
 namespace Codengine.Cli;
 
@@ -18,19 +13,10 @@ class Program
     {
         var rootCommand = new RootCommand("Codengine - Analyseur de code statique pour C# et PL/SQL");
 
-        // Commande analyze
         rootCommand.AddCommand(CreateAnalyzeCommand());
-
-        // Commande fix
         rootCommand.AddCommand(CreateFixCommand());
-
-        // Commande extract-oracle
         rootCommand.AddCommand(CreateExtractOracleCommand());
-
-        // Commande list-rules
         rootCommand.AddCommand(CreateListRulesCommand());
-
-        // Commande init (créer fichier config)
         rootCommand.AddCommand(CreateInitCommand());
 
         return await rootCommand.InvokeAsync(args);
@@ -96,7 +82,7 @@ class Program
             var tag = context.ParseResult.GetValueForOption(tagOption);
             var untag = context.ParseResult.GetValueForOption(untagOption);
 
-            await RunAnalysisAsync(path, output, format, verbose, disabledRules, configPath, tag, untag);
+            await AnalyzeHandler.RunAsync(path, output, format, verbose, disabledRules, configPath, tag, untag);
         });
 
         return command;
@@ -131,7 +117,7 @@ class Program
             var dryRun = context.ParseResult.GetValueForOption(dryRunOption);
             var rules = context.ParseResult.GetValueForOption(rulesOption) ?? Array.Empty<string>();
 
-            await RunFixAsync(path, dryRun, rules);
+            await FixHandler.RunAsync(path, dryRun, rules);
         });
 
         return command;
@@ -184,7 +170,7 @@ class Program
             var exclude = context.ParseResult.GetValueForOption(excludeOption) ?? Array.Empty<string>();
             var noBodies = context.ParseResult.GetValueForOption(noBodiesOption);
 
-            await ExtractOraclePackagesAsync(connectionString, schema, output, include, exclude, noBodies);
+            await OracleHandler.RunAsync(connectionString, schema, output, include, exclude, noBodies);
         });
 
         return command;
@@ -216,8 +202,8 @@ class Program
                 {
                     var severityColor = rule.Severity switch
                     {
-                        Core.Models.RuleSeverity.Error => ConsoleColor.Red,
-                        Core.Models.RuleSeverity.Warning => ConsoleColor.Yellow,
+                        RuleSeverity.Error => ConsoleColor.Red,
+                        RuleSeverity.Warning => ConsoleColor.Yellow,
                         _ => ConsoleColor.Gray
                     };
 
@@ -294,416 +280,11 @@ class Program
         return command;
     }
 
-    private static async Task RunAnalysisAsync(
-        string path,
-        string? output,
-        string format,
-        bool verbose,
-        string[] disabledRules,
-        string? configPath,
-        bool tag = false,
-        bool untag = false)
-    {
-        if (untag)
-        {
-            PrintHeader();
-            Console.WriteLine($"Retrait des tags codengine dans: {Path.GetFullPath(path)}");
-            Console.WriteLine();
-            await RemoveTagsAsync(path);
-            return;
-        }
-
-        PrintHeader();
-        Console.WriteLine($"Analyse de: {Path.GetFullPath(path)}");
-        Console.WriteLine();
-
-        // Charger la configuration
-        var fileConfig = await ConfigLoader.LoadAsync(configPath);
-
-        var provider = new DefaultRuleProvider();
-
-        // Appliquer les règles désactivées depuis le fichier de config
-        if (fileConfig?.Rules != null)
-        {
-            foreach (var (ruleId, ruleConfig) in fileConfig.Rules)
-            {
-                var rule = provider.GetRuleById(ruleId);
-                if (rule != null)
-                {
-                    rule.IsEnabled = ruleConfig.Enabled;
-                }
-            }
-        }
-
-        // Appliquer les règles désactivées depuis la ligne de commande
-        if (disabledRules.Length > 0)
-        {
-            var disabledSet = new HashSet<string>(
-                disabledRules.SelectMany(r => r.Split(',', StringSplitOptions.RemoveEmptyEntries)),
-                StringComparer.OrdinalIgnoreCase);
-
-            foreach (var rule in provider.GetRules())
-            {
-                if (disabledSet.Contains(rule.Id))
-                {
-                    rule.IsEnabled = false;
-                }
-            }
-        }
-
-        var engine = new RoslynAnalysisEngine(new RuleProviderAdapter(provider));
-
-        var config = fileConfig?.ToEngineConfig() ?? new EngineConfig();
-        config.SourcePath = path;
-
-        var result = await engine.AnalyzeAsync(config);
-
-        IReporter reporter = format.ToLowerInvariant() switch
-        {
-            "json" => new JsonReporter(),
-            "html" => new HtmlReporter(),
-            _ => new ConsoleReporter()
-        };
-
-        var reporterOptions = new ReporterOptions
-        {
-            OutputPath = output,
-            Verbose = verbose,
-            IncludeCodeSnippets = fileConfig?.Reporting?.IncludeCodeSnippets ?? true
-        };
-
-        await reporter.ReportAsync(result, reporterOptions);
-
-        if (tag && result.TotalViolations > 0)
-        {
-            Console.WriteLine();
-            await ApplyTagsAsync(result);
-        }
-
-        Environment.ExitCode = result.HasErrors ? 1 : 0;
-    }
-
-    private const string TagPrefix = "// codengine[";
-
-    private static readonly byte[] Utf8Bom = { 0xEF, 0xBB, 0xBF };
-
-    /// <summary>
-    /// Lit un fichier texte en préservant exactement ses octets originaux.
-    /// - Avec BOM UTF-8 : décode en UTF-8, réécrit avec BOM.
-    /// - Sans BOM : utilise Latin1 comme encodage transparent (byte N → char N → byte N),
-    ///   ce qui préserve les accents qu'ils soient en UTF-8 sans BOM ou en ANSI/Windows-1252.
-    ///   C'est safe car les opérations de tag/untag n'utilisent que des caractères ASCII.
-    /// </summary>
-    private static async Task<(string content, System.Text.Encoding encoding)> ReadFileAsync(string filePath)
-    {
-        var rawBytes = await File.ReadAllBytesAsync(filePath);
-        var hasBom = rawBytes.Length >= 3
-            && rawBytes[0] == Utf8Bom[0]
-            && rawBytes[1] == Utf8Bom[1]
-            && rawBytes[2] == Utf8Bom[2];
-        var encoding = hasBom
-            ? new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true)
-            : System.Text.Encoding.Latin1;
-        var content = encoding.GetString(rawBytes, hasBom ? 3 : 0, rawBytes.Length - (hasBom ? 3 : 0));
-        return (content, encoding);
-    }
-
-    private static async Task ApplyTagsAsync(Core.Models.AnalysisResult result)
-    {
-        Console.WriteLine("Application des tags codengine...");
-        var taggedCount = 0;
-
-        foreach (var group in result.Violations.GroupBy(v => v.FilePath))
-        {
-            var filePath = group.Key;
-            if (!File.Exists(filePath)) continue;
-
-            var (content, encoding) = await ReadFileAsync(filePath);
-            var lineEnding = content.Contains("\r\n") ? "\r\n" : "\n";
-            var lines = content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-
-            // Retirer les tags existants (idempotent)
-            for (int i = 0; i < lines.Length; i++)
-            {
-                var idx = lines[i].IndexOf(TagPrefix, StringComparison.Ordinal);
-                if (idx >= 0)
-                    lines[i] = lines[i][..idx].TrimEnd();
-            }
-
-            // Ajouter les nouveaux tags
-            foreach (var lineGroup in group.GroupBy(v => v.Line))
-            {
-                var lineIndex = lineGroup.Key - 1;
-                if (lineIndex < 0 || lineIndex >= lines.Length) continue;
-
-                var ruleIds = string.Join(", ", lineGroup.Select(v => v.RuleId).Distinct());
-                lines[lineIndex] = lines[lineIndex].TrimEnd() + "  " + TagPrefix + ruleIds + "]";
-            }
-
-            await File.WriteAllTextAsync(filePath, string.Join(lineEnding, lines), encoding);
-            taggedCount++;
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine($"  Tagué: {filePath}");
-            Console.ResetColor();
-        }
-
-        Console.WriteLine();
-        Console.WriteLine($"{taggedCount} fichier(s) tagué(s). Utilisez --untag pour retirer les tags.");
-    }
-
-    private static async Task RemoveTagsAsync(string path)
-    {
-        IEnumerable<string> files;
-
-        if (File.Exists(path))
-        {
-            files = new[] { path };
-        }
-        else if (Directory.Exists(path))
-        {
-            files = Directory.GetFiles(path, "*.cs", SearchOption.AllDirectories)
-                .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")
-                         && !f.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}"));
-        }
-        else
-        {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"Chemin introuvable: {path}");
-            Console.ResetColor();
-            return;
-        }
-
-        var cleanedCount = 0;
-
-        foreach (var filePath in files)
-        {
-            var (content, encoding) = await ReadFileAsync(filePath);
-            if (!content.Contains(TagPrefix)) continue;
-
-            var lineEnding = content.Contains("\r\n") ? "\r\n" : "\n";
-            var lines = content.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-
-            for (int i = 0; i < lines.Length; i++)
-            {
-                var idx = lines[i].IndexOf(TagPrefix, StringComparison.Ordinal);
-                if (idx >= 0)
-                    lines[i] = lines[i][..idx].TrimEnd();
-            }
-
-            await File.WriteAllTextAsync(filePath, string.Join(lineEnding, lines), encoding);
-            cleanedCount++;
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"  Nettoyé: {filePath}");
-            Console.ResetColor();
-        }
-
-        if (cleanedCount == 0)
-            Console.WriteLine("Aucun tag codengine trouvé.");
-        else
-        {
-            Console.WriteLine();
-            Console.WriteLine($"{cleanedCount} fichier(s) nettoyé(s).");
-        }
-    }
-
-    private static async Task RunFixAsync(string path, bool dryRun, string[] rules)
-    {
-        PrintHeader();
-        Console.WriteLine($"Correction de: {Path.GetFullPath(path)}");
-        if (dryRun)
-        {
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine("Mode dry-run: aucune modification ne sera effectuée.");
-            Console.ResetColor();
-        }
-        Console.WriteLine();
-
-        var provider = new DefaultRuleProvider();
-        var engine = new RoslynAnalysisEngine(new RuleProviderAdapter(provider));
-
-        var config = new EngineConfig
-        {
-            SourcePath = path,
-            IncludePatterns = new List<string> { "**/*.cs" },
-            ExcludePatterns = new List<string> { "**/bin/**", "**/obj/**" }
-        };
-
-        // Analyser d'abord
-        Console.WriteLine("Analyse en cours...");
-        var result = await engine.AnalyzeAsync(config);
-
-        if (result.TotalViolations == 0)
-        {
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine("Aucune violation à corriger.");
-            Console.ResetColor();
-            return;
-        }
-
-        Console.WriteLine($"Trouvé {result.TotalViolations} violation(s).");
-        Console.WriteLine();
-
-        // Créer le moteur de fix
-        var fixers = new ICodeFixer[]
-        {
-            new NullCheckFixer(),
-            new EmptyCatchFixer(),
-            new AsyncNamingFixer()
-        };
-
-        var fixEngine = new CodeFixerEngine(fixers);
-
-        // Filtrer par règles si spécifié
-        var violations = result.Violations.AsEnumerable();
-        if (rules.Length > 0)
-        {
-            var ruleSet = new HashSet<string>(rules, StringComparer.OrdinalIgnoreCase);
-            violations = violations.Where(v => ruleSet.Contains(v.RuleId));
-        }
-
-        // Filtrer seulement les violations avec un fixer
-        var fixableViolations = violations.Where(v => fixEngine.HasFixer(v.RuleId)).ToList();
-
-        if (fixableViolations.Count == 0)
-        {
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine("Aucune violation n'a de correction automatique disponible.");
-            Console.ResetColor();
-            return;
-        }
-
-        Console.WriteLine($"{fixableViolations.Count} violation(s) peuvent être corrigées automatiquement.");
-
-        if (dryRun)
-        {
-            Console.WriteLine();
-            foreach (var v in fixableViolations)
-            {
-                Console.WriteLine($"  [{v.RuleId}] {v.FilePath}:{v.Line} - {v.Message}");
-            }
-            return;
-        }
-
-        Console.WriteLine("Application des corrections...");
-        Console.WriteLine();
-
-        var summaries = await fixEngine.FixAllAsync(new Core.Models.AnalysisResult
-        {
-            SourcePath = path,
-            AnalyzedAt = DateTime.UtcNow,
-            Duration = TimeSpan.Zero,
-            Violations = fixableViolations,
-            FilesAnalyzed = 0
-        });
-
-        var totalFixed = summaries.Sum(s => s.Fixed);
-        var totalFailed = summaries.Sum(s => s.Failed);
-
-        foreach (var summary in summaries.Where(s => s.Modified))
-        {
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"  Corrigé: {summary.FilePath} ({summary.Fixed} correction(s))");
-            Console.ResetColor();
-        }
-
-        Console.WriteLine();
-        Console.WriteLine($"Résumé: {totalFixed} correction(s) appliquée(s), {totalFailed} échec(s).");
-
-        if (summaries.Any(s => s.Errors.Count > 0))
-        {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine("\nErreurs:");
-            foreach (var error in summaries.SelectMany(s => s.Errors))
-            {
-                Console.WriteLine($"  {error}");
-            }
-            Console.ResetColor();
-        }
-    }
-
-    private static async Task ExtractOraclePackagesAsync(
-        string connectionString,
-        string? schema,
-        string output,
-        string[] include,
-        string[] exclude,
-        bool noBodies)
-    {
-        PrintHeader();
-        Console.WriteLine("Extraction Oracle");
-        Console.WriteLine();
-
-        var config = new OraclePackageExtractorConfig
-        {
-            ConnectionString = connectionString,
-            Schema = schema,
-            OutputDirectory = output,
-            IncludePackageBodies = !noBodies,
-            IncludePatterns = include.ToList(),
-            ExcludePatterns = exclude.ToList()
-        };
-
-        var extractor = new OraclePackageExtractor(config);
-
-        Console.WriteLine("Test de connexion...");
-        if (!await extractor.TestConnectionAsync())
-        {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine("Échec de la connexion à Oracle.");
-            Console.ResetColor();
-            Environment.ExitCode = 1;
-            return;
-        }
-
-        Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine("Connexion OK.");
-        Console.ResetColor();
-        Console.WriteLine("Extraction en cours...");
-        Console.WriteLine();
-
-        await extractor.ExtractAndSaveAsync();
-    }
-
-    private static void PrintHeader()
+    internal static void PrintHeader()
     {
         Console.WriteLine();
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine($"Codengine v{Version}");
         Console.ResetColor();
-    }
-}
-
-// Adapter pour faire le pont entre Core et Rules
-internal class RuleProviderAdapter : Codengine.Core.Engine.IRuleProvider
-{
-    private readonly DefaultRuleProvider _provider;
-
-    public RuleProviderAdapter(DefaultRuleProvider provider)
-    {
-        _provider = provider;
-    }
-
-    public IEnumerable<Codengine.Core.Engine.IRule> GetRules()
-    {
-        return _provider.GetRules().Select(r => new RuleAdapter(r));
-    }
-}
-
-internal class RuleAdapter : Codengine.Core.Engine.IRule
-{
-    private readonly Codengine.Rules.Abstractions.IRule _rule;
-
-    public RuleAdapter(Codengine.Rules.Abstractions.IRule rule)
-    {
-        _rule = rule;
-    }
-
-    public string Id => _rule.Id;
-    public string Name => _rule.Name;
-    public bool IsEnabled => _rule.IsEnabled;
-
-    public IEnumerable<Codengine.Core.Models.Violation> Analyze(Codengine.Core.Models.RuleContext context)
-    {
-        return _rule.Analyze(context);
     }
 }

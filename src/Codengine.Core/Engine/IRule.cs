@@ -1,6 +1,6 @@
 using Codengine.Core.Models;
 
-namespace Codengine.Rules.Abstractions;
+namespace Codengine.Core.Engine;
 
 public interface IRule
 {

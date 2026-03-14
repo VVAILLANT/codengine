@@ -197,19 +197,24 @@ public class RoslynAnalysisEngine : IAnalysisEngine
         }).ToList();
     }
 
+    private static readonly Lazy<IReadOnlyList<MetadataReference>> SharedReferences = new(() =>
+    {
+        var runtimeDir = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+
+        return Directory.GetFiles(runtimeDir, "System*.dll")
+            .Append(Path.Combine(runtimeDir, "mscorlib.dll"))
+            .Append(Path.Combine(runtimeDir, "netstandard.dll"))
+            .Where(File.Exists)
+            .Select(p => (MetadataReference)MetadataReference.CreateFromFile(p))
+            .ToList();
+    });
+
     private static CSharpCompilation CreateCompilation(IEnumerable<SyntaxTree> trees)
     {
-        var references = new[]
-        {
-            MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(Enumerable).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(Console).Assembly.Location)
-        };
-
         return CSharpCompilation.Create(
             "CodengineAnalysis",
             trees,
-            references,
+            SharedReferences.Value,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
     }
 
@@ -267,18 +272,4 @@ public class RoslynAnalysisEngine : IAnalysisEngine
 
         return path => path.Contains(pattern);
     }
-}
-
-// Interface temporaire pour éviter la dépendance circulaire
-public interface IRuleProvider
-{
-    IEnumerable<IRule> GetRules();
-}
-
-public interface IRule
-{
-    string Id { get; }
-    string Name { get; }
-    bool IsEnabled { get; }
-    IEnumerable<Violation> Analyze(RuleContext context);
 }

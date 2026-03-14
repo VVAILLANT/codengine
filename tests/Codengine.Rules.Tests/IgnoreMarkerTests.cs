@@ -10,7 +10,7 @@ public class IgnoreMarkerTests
     private static async Task<IReadOnlyList<Violation>> AnalyzeAsync(string code)
     {
         var provider = new DefaultRuleProvider();
-        var engine = new RoslynAnalysisEngine(new TestRuleProviderAdapter(provider));
+        var engine = new RoslynAnalysisEngine(provider);
         var result = await engine.AnalyzeCodeAsync(code, "test.cs");
         return result.Violations;
     }
@@ -25,7 +25,7 @@ using System.Collections.Generic;
 
 public class Test
 {
-    public void Method(List<int> items)
+    public void Method(List<string> items)
     {
         var item = items.FirstOrDefault();
         Console.WriteLine(item.ToString()); // codengine-ignore
@@ -44,7 +44,7 @@ using System.Collections.Generic;
 
 public class Test
 {
-    public void Method(List<int> items)
+    public void Method(List<string> items)
     {
         var item = items.FirstOrDefault();
         Console.WriteLine(item.ToString()); // codengine-ignore COD001
@@ -63,7 +63,7 @@ using System.Collections.Generic;
 
 public class Test
 {
-    public void Method(List<int> items)
+    public void Method(List<string> items)
     {
         var item = items.FirstOrDefault();
         Console.WriteLine(item.ToString()); // codengine-ignore COD001, COD002
@@ -82,7 +82,7 @@ using System.Collections.Generic;
 
 public class Test
 {
-    public void Method(List<int> items)
+    public void Method(List<string> items)
     {
         var item = items.FirstOrDefault();
         Console.WriteLine(item.ToString()); // codengine-ignore COD002
@@ -102,7 +102,7 @@ using System.Collections.Generic;
 
 public class Test
 {
-    public void Method(List<int> items)
+    public void Method(List<string> items)
     {
         var item = items.FirstOrDefault();
         Console.WriteLine(item.ToString());
@@ -121,7 +121,7 @@ using System.Collections.Generic;
 
 public class Test
 {
-    public void Method(List<int> items)
+    public void Method(List<string> items)
     {
         var item = items.FirstOrDefault();
         Console.WriteLine(item.ToString()); // CODENGINE-IGNORE
@@ -130,28 +130,4 @@ public class Test
         var violations = await AnalyzeAsync(code);
         Assert.DoesNotContain(violations, v => v.RuleId == "COD001");
     }
-}
-
-// Adapters to bridge Codengine.Rules.Abstractions interfaces with Codengine.Core.Engine interfaces
-file class TestRuleProviderAdapter : Codengine.Core.Engine.IRuleProvider
-{
-    private readonly DefaultRuleProvider _provider;
-
-    public TestRuleProviderAdapter(DefaultRuleProvider provider) => _provider = provider;
-
-    public IEnumerable<Codengine.Core.Engine.IRule> GetRules() =>
-        _provider.GetRules().Select(r => new TestRuleAdapter(r));
-}
-
-file class TestRuleAdapter : Codengine.Core.Engine.IRule
-{
-    private readonly Codengine.Rules.Abstractions.IRule _rule;
-
-    public TestRuleAdapter(Codengine.Rules.Abstractions.IRule rule) => _rule = rule;
-
-    public string Id => _rule.Id;
-    public string Name => _rule.Name;
-    public bool IsEnabled => _rule.IsEnabled;
-
-    public IEnumerable<Violation> Analyze(RuleContext context) => _rule.Analyze(context);
 }

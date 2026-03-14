@@ -1,4 +1,4 @@
-namespace Codengine.Rules.Abstractions;
+namespace Codengine.Core.Engine;
 
 public interface IRuleProvider
 {
