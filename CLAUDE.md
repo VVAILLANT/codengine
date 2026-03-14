@@ -13,16 +13,17 @@ Codengine est un analyseur de code statique maison (style SonarQube) pour :
 ```
 codengine/
 ├── src/
-│   ├── Codengine.Core/           # Noyau : modèles, engine, configuration
-│   │   ├── Configuration/        # EngineConfig, ConfigLoader
-│   │   ├── Engine/               # RoslynAnalysisEngine
-│   │   ├── Fixes/                # Système d'auto-fix
-│   │   └── Models/               # Violation, AnalysisResult, RuleContext
+│   ├── Codengine.Core/           # Noyau : modèles, engine, interfaces, configuration
+│   │   ├── Configuration/        # EngineConfig, ConfigLoader, CodengineConfig
+│   │   ├── Engine/               # RoslynAnalysisEngine, IRule, IRuleProvider
+│   │   ├── Fixes/                # CodeFixerEngine, ICodeFixer
+│   │   ├── IO/                   # FileEncodingHelper (préservation encodage)
+│   │   └── Models/               # Violation, AnalysisResult, RuleContext, RuleSeverity
 │   │
 │   ├── Codengine.Rules/          # Règles d'analyse (modulaire)
-│   │   ├── Abstractions/         # IRule, RuleBase, IRuleProvider
+│   │   ├── Abstractions/         # RuleBase, DefaultRuleProvider
 │   │   ├── CSharp/               # Règles C# (COD001-COD009)
-│   │   └── Fixes/                # Auto-fixers par règle
+│   │   └── Fixes/                # Auto-fixers par règle (NullCheck, EmptyCatch, AsyncNaming)
 │   │
 │   ├── Codengine.Connectors/     # Connecteurs externes
 │   │   └── Oracle/               # OraclePackageExtractor
@@ -33,10 +34,36 @@ codengine/
 │   │   └── HtmlReporter.cs
 │   │
 │   └── Codengine.Cli/            # Application console (System.CommandLine)
+│       ├── Program.cs            # Point d'entrée, définition des commandes
+│       ├── AnalyzeHandler.cs     # Logique analyze, tag/untag
+│       ├── FixHandler.cs         # Logique auto-fix
+│       ├── OracleHandler.cs      # Logique extraction Oracle
+│       └── FileEncodingHelper.cs # Pont vers Core.IO.FileEncodingHelper
 │
 └── tests/
-    └── Codengine.Rules.Tests/    # Tests xUnit
+    ├── Codengine.Rules.Tests/    # Tests xUnit (règles + ignore)
+    └── Codengine.Core.Tests/     # Tests xUnit (core)
 ```
+
+### Graphe de dépendances
+
+```
+Codengine.Core (aucune dépendance projet)
+  ↑
+  ├── Codengine.Rules       (implémente IRule/IRuleProvider de Core)
+  ├── Codengine.Reporters   (consomme AnalysisResult de Core)
+  ├── Codengine.Connectors  (consomme modèles de Core)
+  └── Codengine.Cli         (agrège tous les projets)
+```
+
+Les interfaces `IRule` et `IRuleProvider` sont définies dans `Codengine.Core.Engine` et implémentées par `RuleBase`/`DefaultRuleProvider` dans `Codengine.Rules.Abstractions`. Pas d'adapter nécessaire.
+
+### Mécanismes clés
+
+- **Auto-discovery des règles** : `DefaultRuleProvider` scanne l'assembly Rules par réflexion — une classe = une règle, zéro configuration
+- **Compilation Roslyn** : `CreateCompilation` charge toutes les assemblies `System*.dll` du runtime .NET (cache `Lazy<T>`) pour un `SemanticModel` complet
+- **Préservation encodage** : `FileEncodingHelper` (Core.IO) détecte BOM UTF-8 / Latin1 pour les opérations de lecture/écriture (tag, untag, auto-fix)
+- **`// codengine-ignore`** : filtrage post-analyse dans `RoslynAnalysisEngine.FilterIgnoredViolations` — supporte toutes règles, règle spécifique, ou liste
 
 ## Commandes de build
 
