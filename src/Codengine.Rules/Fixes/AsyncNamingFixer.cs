@@ -1,12 +1,14 @@
 using Codengine.Core.Fixes;
 using Codengine.Core.Models;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace Codengine.Rules.Fixes;
 
 /// <summary>
 /// Auto-fix pour COD003: renomme les méthodes async pour terminer par "Async".
+/// Utilise l'AST Roslyn pour renommer la déclaration et tous les appels dans le fichier.
 /// </summary>
 public class AsyncNamingFixer : ICodeFixer
 {
@@ -34,34 +36,55 @@ public class AsyncNamingFixer : ICodeFixer
         var oldName = method.Identifier.Text;
         var newName = oldName + "Async";
 
-        // Renommer tous les usages dans le fichier
-        var code = root.ToFullString();
+        // Collecter tous les noeuds à renommer via l'AST
+        var rewriter = new AsyncRenameRewriter(oldName, newName);
+        var newRoot = rewriter.Visit(root);
 
-        // Simple remplacement - pour un vrai refactoring il faudrait utiliser Roslyn Workspaces
-        // On fait attention à ne pas remplacer des parties de mots
-        var newCode = ReplaceMethodCalls(code, oldName, newName);
-
-        return Task.FromResult(FixResult.Succeeded(newCode, 1));
+        return Task.FromResult(FixResult.Succeeded(newRoot.ToFullString(), rewriter.ReplacementCount));
     }
 
-    private static string ReplaceMethodCalls(string code, string oldName, string newName)
+    private class AsyncRenameRewriter : CSharpSyntaxRewriter
     {
-        // Patterns à remplacer pour les appels de méthode
-        var patterns = new[]
-        {
-            ($" {oldName}(", $" {newName}("),
-            ($".{oldName}(", $".{newName}("),
-            ($">{oldName}(", $">{newName}("),
-            ($"\t{oldName}(", $"\t{newName}("),
-            ($"({oldName}(", $"({newName}("),
-        };
+        private readonly string _oldName;
+        private readonly string _newName;
+        public int ReplacementCount { get; private set; }
 
-        var result = code;
-        foreach (var (old, @new) in patterns)
+        public AsyncRenameRewriter(string oldName, string newName)
         {
-            result = result.Replace(old, @new);
+            _oldName = oldName;
+            _newName = newName;
         }
 
-        return result;
+        public override SyntaxNode? VisitMethodDeclaration(MethodDeclarationSyntax node)
+        {
+            if (node.Identifier.Text == _oldName)
+            {
+                ReplacementCount++;
+                node = node.WithIdentifier(
+                    SyntaxFactory.Identifier(node.Identifier.LeadingTrivia, _newName, node.Identifier.TrailingTrivia));
+            }
+            return base.VisitMethodDeclaration(node);
+        }
+
+        public override SyntaxNode? VisitInvocationExpression(InvocationExpressionSyntax node)
+        {
+            if (node.Expression is IdentifierNameSyntax id && id.Identifier.Text == _oldName)
+            {
+                ReplacementCount++;
+                var newId = id.WithIdentifier(
+                    SyntaxFactory.Identifier(id.Identifier.LeadingTrivia, _newName, id.Identifier.TrailingTrivia));
+                node = node.WithExpression(newId);
+            }
+            else if (node.Expression is MemberAccessExpressionSyntax memberAccess
+                     && memberAccess.Name.Identifier.Text == _oldName)
+            {
+                ReplacementCount++;
+                var newName = memberAccess.Name.WithIdentifier(
+                    SyntaxFactory.Identifier(memberAccess.Name.Identifier.LeadingTrivia, _newName, memberAccess.Name.Identifier.TrailingTrivia));
+                node = node.WithExpression(memberAccess.WithName(newName));
+            }
+
+            return base.VisitInvocationExpression(node);
+        }
     }
 }
