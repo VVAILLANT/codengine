@@ -108,7 +108,7 @@ public class RoslynAnalysisEngine : IAnalysisEngine
             SourcePath = virtualFilePath,
             AnalyzedAt = startTime,
             Duration = DateTime.UtcNow - startTime,
-            Violations = violations,
+            Violations = FilterIgnoredViolations(code, violations),
             FilesAnalyzed = 1
         };
     }
@@ -153,7 +153,48 @@ public class RoslynAnalysisEngine : IAnalysisEngine
             }
         }
 
-        return violations;
+        return FilterIgnoredViolations(code, violations);
+    }
+
+    private const string IgnoreMarker = "// codengine-ignore";
+
+    /// <summary>
+    /// Filtre les violations sur les lignes contenant un commentaire // codengine-ignore.
+    /// Syntaxes supportées :
+    ///   // codengine-ignore              → supprime toutes les règles sur cette ligne
+    ///   // codengine-ignore COD001       → supprime uniquement COD001
+    ///   // codengine-ignore COD001, COD002 → supprime plusieurs règles
+    /// </summary>
+    private static List<Violation> FilterIgnoredViolations(string code, List<Violation> violations)
+    {
+        if (!code.Contains(IgnoreMarker, StringComparison.OrdinalIgnoreCase))
+            return violations;
+
+        var lines = code.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+
+        return violations.Where(v =>
+        {
+            if (v.Line <= 0 || v.Line > lines.Length)
+                return true;
+
+            var lineText = lines[v.Line - 1];
+            var idx = lineText.IndexOf(IgnoreMarker, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0)
+                return true;
+
+            var afterMarker = lineText[(idx + IgnoreMarker.Length)..].Trim();
+
+            // Pas de règle spécifiée → ignorer toutes les règles
+            if (string.IsNullOrEmpty(afterMarker) || afterMarker.StartsWith("//"))
+                return false;
+
+            // Règles spécifiques listées après le marker
+            var ignoredRules = afterMarker
+                .Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            return !ignoredRules.Contains(v.RuleId);
+        }).ToList();
     }
 
     private static CSharpCompilation CreateCompilation(IEnumerable<SyntaxTree> trees)

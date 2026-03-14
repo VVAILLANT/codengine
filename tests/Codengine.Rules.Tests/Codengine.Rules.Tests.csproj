@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Codengine.Rules\Codengine.Rules.csproj" />
+    <ProjectReference Include="..\..\src\Codengine.Core\Codengine.Core.csproj" />
   </ItemGroup>
 
 </Project>
