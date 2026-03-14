@@ -156,7 +156,7 @@ public class MaRegle : RuleBase
 - 3 auto-fixers (COD001, COD003, COD005)
 - 3 reporters (Console, JSON, HTML)
 - 1 connecteur (Oracle)
-- 33 tests unitaires passent
+- 40 tests unitaires passent
 
 ## Documentation utilisateur
 
@@ -198,4 +198,4 @@ La documentation complète est dans `docs/` :
 - [ ] Watch mode (analyse continue)
 - [ ] Intégration IDE (VS Code extension)
 - [ ] Baseline (ignorer violations existantes)
-- [ ] Commentaires `// codengine-ignore` pour ignorer des lignes
+- [x] Commentaires `// codengine-ignore` pour ignorer des lignes (implémenté)

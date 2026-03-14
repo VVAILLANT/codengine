@@ -519,3 +519,29 @@ var first = items.Where(x => x.IsActive).First();
 ### Méthodes concernées
 
 `Count()`, `Any()`, `All()`, `First()`, `FirstOrDefault()`, `Single()`, `SingleOrDefault()`, `Last()`, `LastOrDefault()`, `Min()`, `Max()`, `Sum()`, `Average()`, `Contains()`
+
+---
+
+## Suppression de violations — `// codengine-ignore`
+
+Il est possible de supprimer une violation sur une ligne spécifique en ajoutant un commentaire `// codengine-ignore` sur **la ligne de la violation**.
+
+### Syntaxes
+
+```csharp
+// Ignorer toutes les règles sur cette ligne
+var x = list.FirstOrDefault().ToString(); // codengine-ignore
+
+// Ignorer uniquement COD001
+var x = list.FirstOrDefault().ToString(); // codengine-ignore COD001
+
+// Ignorer plusieurs règles
+var x = list.FirstOrDefault().ToString(); // codengine-ignore COD001, COD002
+```
+
+### Notes
+
+- La correspondance est insensible à la casse (`// CODENGINE-IGNORE` est valide)
+- Le commentaire doit être sur la ligne où la violation est détectée (la ligne d'usage, pas forcément la déclaration)
+- Sans identifiant de règle : toutes les règles sont supprimées sur cette ligne
+- Avec identifiant(s) : seules les règles listées sont supprimées

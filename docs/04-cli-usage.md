@@ -252,6 +252,18 @@ codengine init
 
 ---
 
+## Suppression de violations inline
+
+Pour ignorer une violation sur une ligne précise sans modifier la configuration globale, ajoutez un commentaire `// codengine-ignore` sur **la ligne de la violation** :
+
+```csharp
+var item = list.FirstOrDefault().ToString(); // codengine-ignore
+var item = list.FirstOrDefault().ToString(); // codengine-ignore COD001
+var item = list.FirstOrDefault().ToString(); // codengine-ignore COD001, COD002
+```
+
+---
+
 ## Options globales
 
 Ces options sont disponibles pour toutes les commandes :
