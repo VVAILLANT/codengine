@@ -120,6 +120,12 @@ public class NullCheckAfterOrDefaultRule : RuleBase
             if (IsInsideGuardClauseCondition(usage, variableName))
                 continue;
 
+            // Dans un || où un opérande précédent utilise item?. :
+            // si item est null, item?.X retourne null, et null != value → true → court-circuit
+            // → item.Prop n'est jamais évalué quand item est null
+            if (IsProtectedByConditionalAccessInOrChain(usage, variableName))
+                continue;
+
             // Protégé par un ternaire : item != null ? item.Prop : default
             // ou : item == null ? default : item.Prop
             if (IsInsideConditionalNotNullBranch(usage, variableName))
@@ -251,6 +257,49 @@ public class NullCheckAfterOrDefaultRule : RuleBase
             current = current.Parent;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Vérifie si l'usage (var.Prop) se trouve dans une chaîne || où un opérande précédent
+    /// contient une ConditionalAccessExpression (var?.) sur la même variable.
+    /// Quand var est null : var?.X retourne null → null != value → true → court-circuit →
+    /// var.Prop n'est jamais évalué. Protège le pattern : var?.X != value || var.Prop
+    /// </summary>
+    private static bool IsProtectedByConditionalAccessInOrChain(IdentifierNameSyntax usage, string variableName)
+    {
+        var current = (SyntaxNode)usage;
+        while (current != null)
+        {
+            if (current.Parent is IfStatementSyntax ifStatement
+                && ifStatement.Condition.Span.Contains(usage.Span))
+            {
+                var operands = new List<ExpressionSyntax>();
+                CollectOrOperands(ifStatement.Condition, operands);
+
+                foreach (var operand in operands)
+                {
+                    if (operand.Span.Contains(usage.Span))
+                        break; // atteint notre usage sans trouver de var?. avant → pas protégé
+
+                    if (ContainsConditionalAccessFor(operand, variableName))
+                        return true;
+                }
+                break;
+            }
+
+            if (current is StatementSyntax or BaseMethodDeclarationSyntax)
+                break;
+
+            current = current.Parent;
+        }
+        return false;
+    }
+
+    private static bool ContainsConditionalAccessFor(SyntaxNode expr, string variableName)
+    {
+        return expr.DescendantNodesAndSelf()
+            .OfType<ConditionalAccessExpressionSyntax>()
+            .Any(ca => ca.Expression is IdentifierNameSyntax id && id.Identifier.Text == variableName);
     }
 
     /// <summary>
@@ -523,8 +572,21 @@ public class NullCheckAfterOrDefaultRule : RuleBase
                 return false;
 
             // var == null / null == var
+            // var?.X == null → quand var est null : null == null → true → guard déclenché
             case BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.EqualsExpression):
-                return IsNullComparison(binary, variableName);
+                if (IsNullComparison(binary, variableName)) return true;
+                if ((ContainsConditionalAccessFor(binary.Left, variableName) && binary.Right.IsKind(SyntaxKind.NullLiteralExpression))
+                 || (ContainsConditionalAccessFor(binary.Right, variableName) && binary.Left.IsKind(SyntaxKind.NullLiteralExpression)))
+                    return true;
+                return false;
+
+            // var?.X != nonNullValue → quand var est null : null != nonNull → true → guard déclenché
+            // (exclut var?.X != null qui retourne false quand var est null)
+            case BinaryExpressionSyntax binary2 when binary2.IsKind(SyntaxKind.NotEqualsExpression):
+                if ((ContainsConditionalAccessFor(binary2.Left, variableName) && !binary2.Right.IsKind(SyntaxKind.NullLiteralExpression))
+                 || (ContainsConditionalAccessFor(binary2.Right, variableName) && !binary2.Left.IsKind(SyntaxKind.NullLiteralExpression)))
+                    return true;
+                return false;
 
             // var is null
             case IsPatternExpressionSyntax { Pattern: ConstantPatternSyntax cp } isExpr

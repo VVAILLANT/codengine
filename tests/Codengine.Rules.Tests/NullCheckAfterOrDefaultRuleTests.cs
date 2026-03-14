@@ -730,6 +730,34 @@ public class Test
         Assert.Empty(violations);
     }
 
+    [Fact]
+    public void Should_Not_Detect_When_ConditionalAccess_Before_MemberAccess_In_Or_Chain()
+    {
+        // Cas : if (var?.X != value || var.Prop == null) return;
+        // Quand var est null → var?.X = null → null != value → true → court-circuit → var.Prop jamais évalué
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Reseau { public string Code { get; set; } }
+public class Direction { public Reseau Reseau { get; set; } public string AffreteArrivee { get; set; } }
+
+public class Test
+{
+    public void Method(List<Direction> list)
+    {
+        var direction = list.FirstOrDefault(d => d.Reseau != null);
+        if (direction?.Reseau?.Code?.StartsWith(""SC"") != true || direction.AffreteArrivee == null)
+            return;
+        System.Console.WriteLine(direction.AffreteArrivee);
+    }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Empty(violations);
+    }
+
     private List<Violation> AnalyzeCode(string code)
     {
         var tree = CSharpSyntaxTree.ParseText(code);
