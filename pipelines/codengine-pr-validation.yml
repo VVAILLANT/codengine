@@ -7,9 +7,7 @@ pr:
   paths:
     include:
       - "**/*.cs"
-    exclude:
-      - "**/*.yml"
-      - "**/*.yaml"
+      - "**/*.csproj"
 
 name: $(Date:yyyyMMdd).$(Rev:r) • PR $(System.PullRequest.PullRequestId) (codengine)
 appendCommitMessageToRunName: false
@@ -138,7 +136,12 @@ steps:
 
         curl -sf \
           -H "Authorization: Bearer $SYSTEM_ACCESSTOKEN" \
-          "${ORG_URL}${PROJECT}/_apis/git/repositories/${REPO_ID}/items?path=${filepath}&versionType=commit&version=${COMMIT_ID}&api-version=7.1" \
+          --get \
+          --data-urlencode "path=${filepath}" \
+          --data-urlencode "versionType=commit" \
+          --data-urlencode "version=${COMMIT_ID}" \
+          --data-urlencode "api-version=7.1" \
+          "${ORG_URL}${PROJECT}/_apis/git/repositories/${REPO_ID}/items" \
           -o "$LOCAL_PATH"
 
         echo "  Téléchargé : $filepath"
