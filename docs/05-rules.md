@@ -152,6 +152,68 @@ foreach (Item item in otherList)
 }
 ```
 
+#### Protection par vérification de collection non vide
+
+La règle reconnaît les patterns où la collection source de `*OrDefault()` est vérifiée non vide avant l'accès membre sur le résultat. Si la collection n'est pas vide, `*OrDefault()` retourne un élément existant et l'accès membre est sûr grâce au court-circuit.
+
+**Chaîne `&&`** — l'opérande précédent est évalué à `true`, donc la collection est garantie non vide :
+
+```csharp
+var item = list.FirstOrDefault();
+
+// CORRECT : Count() != 0 garantit que list n'est pas vide → item n'est pas null
+bool result = list.Count() != 0 && item.Value > 0;
+
+// CORRECT : Any() garantit que list n'est pas vide
+bool result = list.Any() && item.Value > 0;
+
+// CORRECT : Count > 0 (propriété)
+bool result = list.Count > 0 && item.Value > 0;
+
+// CORRECT : Count >= 1
+bool result = list.Count() >= 1 && item.Value > 0;
+```
+
+**Chaîne `||`** — l'opérande précédent est évalué à `false`, donc la condition de vacuité est fausse (= la collection n'est pas vide) :
+
+```csharp
+var item = list.FirstOrDefault();
+
+// CORRECT : Count() == 0 est false → list n'est pas vide → item n'est pas null
+bool result = list.Count() == 0 || item.Value > 0;
+
+// CORRECT : !Any() est false → list n'est pas vide
+bool result = !list.Any() || item.Value > 0;
+
+// CORRECT : Count <= 0 est false → list n'est pas vide
+bool result = list.Count() <= 0 || item.Value > 0;
+```
+
+**Cas non protégés** — la condition ne garantit pas que la collection est non vide :
+
+```csharp
+var item = list.FirstOrDefault();
+
+// VIOLATION : Any() dans un || ne protège pas (Any() true → court-circuit, item.Value jamais évalué,
+//             mais Any() false → list vide → item peut être null → item.Value dangereux)
+bool result = list.Any() || item.Value > 0;
+
+// VIOLATION : Count() != 0 dans un || ne protège pas
+bool result = list.Count() != 0 || item.Value > 0;
+```
+
+#### Protection par accès conditionnel dans une chaîne `||`
+
+La règle reconnaît le pattern où un opérande précédent utilise `var?.` (accès conditionnel) dans une chaîne `||`. Si `var` est `null`, `var?.X` retourne `null`, et la comparaison (`null != value`) est `true`, ce qui court-circuite l'évaluation et empêche `var.Prop` d'être atteint :
+
+```csharp
+var user = users.FirstOrDefault(u => u.Id == id);
+
+// CORRECT : user?.Type != expectedType court-circuite si user est null
+if (user?.Type != expectedType || user.IsDisabled)
+    return;
+```
+
 ---
 
 ## COD002 - EmptyListBeforeContains
