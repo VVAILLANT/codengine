@@ -82,6 +82,7 @@ public class NullCheckAfterOrDefaultRule : RuleBase
         string variableName,
         InvocationExpressionSyntax declaration)
     {
+        var sourceCollectionExpression = GetSourceCollectionExpression(declaration);
         var declarationEnd = declaration.Span.End;
 
         var usages = scope.DescendantNodes()
@@ -124,6 +125,13 @@ public class NullCheckAfterOrDefaultRule : RuleBase
             // si item est null, item?.X retourne null, et null != value → true → court-circuit
             // → item.Prop n'est jamais évalué quand item est null
             if (IsProtectedByConditionalAccessInOrChain(usage, variableName))
+                continue;
+
+            // Protégé par un check "collection non vide" avant l'accès membre
+            // Ex: list.Count() != 0 && item.Prop ...
+            // Ex: list.Count() == 0 || item.Prop ...
+            if (sourceCollectionExpression != null
+                && IsProtectedByNonEmptyCollectionCheckInLogicalChain(usage, sourceCollectionExpression))
                 continue;
 
             // Protégé par un ternaire : item != null ? item.Prop : default
@@ -201,6 +209,275 @@ public class NullCheckAfterOrDefaultRule : RuleBase
                                     && type.NullableAnnotation != NullableAnnotation.Annotated;
         }
 
+        return false;
+    }
+
+    private static ExpressionSyntax? GetSourceCollectionExpression(InvocationExpressionSyntax invocation)
+    {
+        return invocation.Expression is MemberAccessExpressionSyntax memberAccess
+            ? memberAccess.Expression
+            : null;
+    }
+
+    /// <summary>
+    /// Vérifie si l'usage est protégé par un opérande précédent d'une chaîne logique
+    /// (&& ou ||) qui garantit que la collection source de *OrDefault() n'est pas vide
+    /// au moment où l'opérande contenant l'usage est évalué.
+    /// </summary>
+    private static bool IsProtectedByNonEmptyCollectionCheckInLogicalChain(
+        IdentifierNameSyntax usage,
+        ExpressionSyntax sourceCollectionExpression)
+    {
+        var current = (SyntaxNode)usage;
+        while (current != null)
+        {
+            if (current.Parent is BinaryExpressionSyntax binaryExpr
+                && (binaryExpr.IsKind(SyntaxKind.LogicalAndExpression)
+                    || binaryExpr.IsKind(SyntaxKind.LogicalOrExpression))
+                && binaryExpr.Span.Contains(usage.Span))
+            {
+                var operatorKind = binaryExpr.Kind();
+
+                var topLogical = binaryExpr;
+                while (topLogical.Parent is BinaryExpressionSyntax parentLogical
+                       && parentLogical.Kind() == operatorKind
+                       && parentLogical.Span.Contains(usage.Span))
+                {
+                    topLogical = parentLogical;
+                }
+
+                var operands = new List<ExpressionSyntax>();
+                CollectLogicalOperands(topLogical, operatorKind, operands);
+
+                foreach (var operand in operands)
+                {
+                    if (operand.Span.Contains(usage.Span))
+                        break;
+
+                    var guaranteesNonEmpty = operatorKind == SyntaxKind.LogicalAndExpression
+                        ? ConditionGuaranteesCollectionNonEmpty(operand, sourceCollectionExpression, whenTrue: true)
+                        : ConditionGuaranteesCollectionNonEmpty(operand, sourceCollectionExpression, whenTrue: false);
+
+                    if (guaranteesNonEmpty)
+                        return true;
+                }
+
+                return false;
+            }
+
+            if (current is StatementSyntax or BaseMethodDeclarationSyntax)
+                break;
+
+            current = current.Parent;
+        }
+
+        return false;
+    }
+
+    private static void CollectLogicalOperands(
+        ExpressionSyntax expr,
+        SyntaxKind logicalOperatorKind,
+        List<ExpressionSyntax> operands)
+    {
+        switch (expr)
+        {
+            case BinaryExpressionSyntax binary when binary.IsKind(logicalOperatorKind):
+                CollectLogicalOperands(binary.Left, logicalOperatorKind, operands);
+                CollectLogicalOperands(binary.Right, logicalOperatorKind, operands);
+                break;
+            case ParenthesizedExpressionSyntax paren:
+                CollectLogicalOperands(paren.Expression, logicalOperatorKind, operands);
+                break;
+            default:
+                operands.Add(expr);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Détermine si une condition garantit que la collection n'est pas vide,
+    /// selon la polarité attendue (quand l'expression vaut true ou false).
+    /// </summary>
+    private static bool ConditionGuaranteesCollectionNonEmpty(
+        ExpressionSyntax condition,
+        ExpressionSyntax sourceCollectionExpression,
+        bool whenTrue)
+    {
+        condition = UnwrapParenthesized(condition);
+
+        return condition switch
+        {
+            // Pour (a && b):
+            // - quand true: les deux sont vrais, il suffit qu'un des deux garantisse non-vide quand true
+            // - quand false: au moins un est faux, il faut que les deux garantissent non-vide quand false
+            BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.LogicalAndExpression)
+                => whenTrue
+                    ? ConditionGuaranteesCollectionNonEmpty(binary.Left, sourceCollectionExpression, whenTrue: true)
+                      || ConditionGuaranteesCollectionNonEmpty(binary.Right, sourceCollectionExpression, whenTrue: true)
+                    : ConditionGuaranteesCollectionNonEmpty(binary.Left, sourceCollectionExpression, whenTrue: false)
+                      && ConditionGuaranteesCollectionNonEmpty(binary.Right, sourceCollectionExpression, whenTrue: false),
+
+            // Pour (a || b):
+            // - quand true: au moins un est vrai, les deux doivent garantir non-vide quand true
+            // - quand false: les deux sont faux, il suffit qu'un côté garantisse non-vide quand false
+            BinaryExpressionSyntax binary when binary.IsKind(SyntaxKind.LogicalOrExpression)
+                => whenTrue
+                    ? ConditionGuaranteesCollectionNonEmpty(binary.Left, sourceCollectionExpression, whenTrue: true)
+                      && ConditionGuaranteesCollectionNonEmpty(binary.Right, sourceCollectionExpression, whenTrue: true)
+                    : ConditionGuaranteesCollectionNonEmpty(binary.Left, sourceCollectionExpression, whenTrue: false)
+                      || ConditionGuaranteesCollectionNonEmpty(binary.Right, sourceCollectionExpression, whenTrue: false),
+
+            // !a -> inverse la polarité
+            PrefixUnaryExpressionSyntax prefix when prefix.IsKind(SyntaxKind.LogicalNotExpression)
+                => ConditionGuaranteesCollectionNonEmpty(prefix.Operand, sourceCollectionExpression, whenTrue: !whenTrue),
+
+            InvocationExpressionSyntax invocation
+                => whenTrue && IsAnyCall(invocation, sourceCollectionExpression),
+
+            BinaryExpressionSyntax comparison
+                => IsCountComparisonGuaranteeingNonEmpty(comparison, sourceCollectionExpression, whenTrue),
+
+            _ => false
+        };
+    }
+
+    private static ExpressionSyntax UnwrapParenthesized(ExpressionSyntax expr)
+    {
+        while (expr is ParenthesizedExpressionSyntax paren)
+            expr = paren.Expression;
+
+        return expr;
+    }
+
+    private static bool IsAnyCall(InvocationExpressionSyntax invocation, ExpressionSyntax sourceCollectionExpression)
+    {
+        if (invocation.Expression is not MemberAccessExpressionSyntax memberAccess)
+            return false;
+
+        if (memberAccess.Name.Identifier.Text != "Any")
+            return false;
+
+        if (invocation.ArgumentList.Arguments.Count != 0)
+            return false;
+
+        return IsSameExpression(memberAccess.Expression, sourceCollectionExpression);
+    }
+
+    private static bool IsCountComparisonGuaranteeingNonEmpty(
+        BinaryExpressionSyntax comparison,
+        ExpressionSyntax sourceCollectionExpression,
+        bool whenTrue)
+    {
+        var left = UnwrapParenthesized(comparison.Left);
+        var right = UnwrapParenthesized(comparison.Right);
+
+        if (IsCountAccess(left, sourceCollectionExpression) && TryGetIntLiteral(right, out var rightValue))
+            return IsCountComparisonGuaranteeingNonEmpty(comparison.Kind(), rightValue, countOnLeft: true, whenTrue);
+
+        if (IsCountAccess(right, sourceCollectionExpression) && TryGetIntLiteral(left, out var leftValue))
+            return IsCountComparisonGuaranteeingNonEmpty(comparison.Kind(), leftValue, countOnLeft: false, whenTrue);
+
+        return false;
+    }
+
+    private static bool IsCountComparisonGuaranteeingNonEmpty(
+        SyntaxKind kind,
+        int literalValue,
+        bool countOnLeft,
+        bool whenTrue)
+    {
+        return whenTrue
+            ? IsPositiveCountComparisonKind(kind, literalValue, countOnLeft)
+            : IsZeroCountComparisonKind(kind, literalValue, countOnLeft);
+    }
+
+    private static bool IsPositiveCountComparisonKind(SyntaxKind kind, int literalValue, bool countOnLeft)
+    {
+        return kind switch
+        {
+            SyntaxKind.NotEqualsExpression => literalValue == 0,
+
+            // count > 0 / count >= 1
+            SyntaxKind.GreaterThanExpression when countOnLeft => literalValue == 0,
+            SyntaxKind.GreaterThanOrEqualExpression when countOnLeft => literalValue <= 1,
+
+            // 0 < count / 1 <= count
+            SyntaxKind.LessThanExpression when !countOnLeft => literalValue == 0,
+            SyntaxKind.LessThanOrEqualExpression when !countOnLeft => literalValue <= 1,
+
+            _ => false
+        };
+    }
+
+    private static bool IsZeroCountComparisonKind(SyntaxKind kind, int literalValue, bool countOnLeft)
+    {
+        return kind switch
+        {
+            SyntaxKind.EqualsExpression => literalValue == 0,
+
+            // count <= 0 / count < 1
+            SyntaxKind.LessThanOrEqualExpression when countOnLeft => literalValue == 0,
+            SyntaxKind.LessThanExpression when countOnLeft => literalValue <= 1,
+
+            // 0 >= count / 1 > count
+            SyntaxKind.GreaterThanOrEqualExpression when !countOnLeft => literalValue == 0,
+            SyntaxKind.GreaterThanExpression when !countOnLeft => literalValue <= 1,
+
+            _ => false
+        };
+    }
+
+    private static bool IsCountAccess(ExpressionSyntax expr, ExpressionSyntax sourceCollectionExpression)
+    {
+        expr = UnwrapParenthesized(expr);
+
+        // list.Count()
+        if (expr is InvocationExpressionSyntax invocation
+            && invocation.Expression is MemberAccessExpressionSyntax methodAccess
+            && methodAccess.Name.Identifier.Text == "Count"
+            && invocation.ArgumentList.Arguments.Count == 0)
+        {
+            return IsSameExpression(methodAccess.Expression, sourceCollectionExpression);
+        }
+
+        // list.Count
+        if (expr is MemberAccessExpressionSyntax propertyAccess
+            && propertyAccess.Name.Identifier.Text == "Count")
+        {
+            return IsSameExpression(propertyAccess.Expression, sourceCollectionExpression);
+        }
+
+        return false;
+    }
+
+    private static bool IsSameExpression(ExpressionSyntax left, ExpressionSyntax right)
+    {
+        return SyntaxFactory.AreEquivalent(UnwrapParenthesized(left), UnwrapParenthesized(right));
+    }
+
+    private static bool TryGetIntLiteral(ExpressionSyntax expr, out int value)
+    {
+        expr = UnwrapParenthesized(expr);
+
+        if (expr is PrefixUnaryExpressionSyntax unary
+            && unary.IsKind(SyntaxKind.UnaryMinusExpression)
+            && unary.Operand is LiteralExpressionSyntax literal
+            && literal.IsKind(SyntaxKind.NumericLiteralExpression)
+            && int.TryParse(literal.Token.ValueText, out var negativeLiteral))
+        {
+            value = -negativeLiteral;
+            return true;
+        }
+
+        if (expr is LiteralExpressionSyntax numeric
+            && numeric.IsKind(SyntaxKind.NumericLiteralExpression)
+            && int.TryParse(numeric.Token.ValueText, out var parsed))
+        {
+            value = parsed;
+            return true;
+        }
+
+        value = 0;
         return false;
     }
 

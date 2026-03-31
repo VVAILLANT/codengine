@@ -58,6 +58,76 @@ public class Test
     }
 
     [Fact]
+    public void Should_Not_Detect_When_ZeroCount_Check_Precedes_MemberAccess_In_Or_Chain()
+    {
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Item { public int Value { get; set; } }
+
+public class Test
+{
+    public void Method(List<Item> items)
+    {
+        var item = items.FirstOrDefault();
+        var isPositive = items.Count() == 0 || item.Value > 0;
+    }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Should_Not_Detect_When_NegatedAny_Check_Precedes_MemberAccess_In_Or_Chain()
+    {
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Item { public int Value { get; set; } }
+
+public class Test
+{
+    public void Method(List<Item> items)
+    {
+        var item = items.FirstOrDefault();
+        var isPositive = !items.Any() || item.Value > 0;
+    }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Should_Detect_When_Any_Check_Precedes_MemberAccess_In_Or_Chain()
+    {
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Item { public int Value { get; set; } }
+
+public class Test
+{
+    public void Method(List<Item> items)
+    {
+        var item = items.FirstOrDefault();
+        var isPositive = items.Any() || item.Value > 0;
+    }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Single(violations);
+        Assert.Equal("COD001", violations[0].RuleId);
+    }
+
+    [Fact]
     public void Should_Not_Detect_When_Using_NullConditional()
     {
         var code = @"
@@ -750,6 +820,52 @@ public class Test
         if (direction?.Reseau?.Code?.StartsWith(""SC"") != true || direction.AffreteArrivee == null)
             return;
         System.Console.WriteLine(direction.AffreteArrivee);
+    }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Should_Not_Detect_When_Count_Check_Precedes_MemberAccess_In_And_Chain()
+    {
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Item { public int Value { get; set; } }
+
+public class Test
+{
+    public void Method(List<Item> items)
+    {
+        var item = items.FirstOrDefault();
+        var isPositive = items.Count() != 0 && item.Value > 0;
+    }
+}";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Should_Not_Detect_When_Any_Check_Precedes_MemberAccess_In_And_Chain()
+    {
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Item { public int Value { get; set; } }
+
+public class Test
+{
+    public void Method(List<Item> items)
+    {
+        var item = items.FirstOrDefault();
+        var isPositive = items.Any() && item.Value > 0;
     }
 }";
 
