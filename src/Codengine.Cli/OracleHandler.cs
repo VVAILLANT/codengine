@@ -101,6 +101,8 @@ internal static class OracleHandler
         if (string.IsNullOrWhiteSpace(encodingName))
             return Encoding.UTF8;
 
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
         try
         {
             return Encoding.GetEncoding(encodingName);

@@ -122,7 +122,6 @@ public class OraclePackageExtractor : ISourceConnector
         var content = new StringBuilder();
         content.AppendLine($"-- Package: {packageName}");
         content.AppendLine($"-- Schema: {schema}");
-        content.AppendLine($"-- Extracted: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
         content.AppendLine();
 
         // Extraire le header (specification)
