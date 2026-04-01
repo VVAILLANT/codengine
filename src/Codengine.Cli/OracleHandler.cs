@@ -22,8 +22,19 @@ internal static class OracleHandler
         OracleConfig? oracleConfig = null;
         if (useConfig)
         {
-            var fileConfig = await ConfigLoader.LoadAsync();
-            oracleConfig = fileConfig?.Oracle;
+            try
+            {
+                var fileConfig = await ConfigLoader.LoadAsync();
+                oracleConfig = fileConfig?.Oracle;
+            }
+            catch (InvalidOperationException ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine(ex.Message);
+                Console.ResetColor();
+                Environment.ExitCode = 1;
+                return;
+            }
         }
 
         if (oracleConfig != null)

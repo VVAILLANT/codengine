@@ -27,7 +27,16 @@ public static class ConfigLoader
             return null;
 
         var json = await File.ReadAllTextAsync(configPath, cancellationToken);
-        return JsonSerializer.Deserialize<CodengineConfig>(json, JsonOptions);
+        try
+        {
+            return JsonSerializer.Deserialize<CodengineConfig>(json, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException(
+                $"Erreur de syntaxe dans le fichier de configuration '{Path.GetFullPath(configPath)}': {ex.Message}" +
+                " Vérifiez que les chemins utilisent des '/' ou des '\\\\' (double backslash).", ex);
+        }
     }
 
     public static CodengineConfig? Load(string? path = null)
@@ -37,7 +46,16 @@ public static class ConfigLoader
             return null;
 
         var json = File.ReadAllText(configPath);
-        return JsonSerializer.Deserialize<CodengineConfig>(json, JsonOptions);
+        try
+        {
+            return JsonSerializer.Deserialize<CodengineConfig>(json, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException(
+                $"Erreur de syntaxe dans le fichier de configuration '{Path.GetFullPath(configPath)}': {ex.Message}" +
+                " Vérifiez que les chemins utilisent des '/' ou des '\\\\' (double backslash).", ex);
+        }
     }
 
     private static string? FindConfigFile()
