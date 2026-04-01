@@ -129,9 +129,9 @@ public class OraclePackageExtractor : ISourceConnector
         if (string.IsNullOrEmpty(header))
             return null;
 
-        content.AppendLine("-- ═══════════════════════════════════════════════════════════════");
+        content.AppendLine("-- =================================================================");
         content.AppendLine("-- PACKAGE SPECIFICATION");
-        content.AppendLine("-- ═══════════════════════════════════════════════════════════════");
+        content.AppendLine("-- =================================================================");
         content.AppendLine();
         content.AppendLine($"CREATE OR REPLACE {header}");
         content.AppendLine("/");
@@ -143,9 +143,9 @@ public class OraclePackageExtractor : ISourceConnector
             var body = await GetSourceCodeAsync(connection, schema, packageName, "PACKAGE BODY", cancellationToken);
             if (!string.IsNullOrEmpty(body))
             {
-                content.AppendLine("-- ═══════════════════════════════════════════════════════════════");
+                content.AppendLine("-- =================================================================");
                 content.AppendLine("-- PACKAGE BODY");
-                content.AppendLine("-- ═══════════════════════════════════════════════════════════════");
+                content.AppendLine("-- =================================================================");
                 content.AppendLine();
                 content.AppendLine($"CREATE OR REPLACE {body}");
                 content.AppendLine("/");
