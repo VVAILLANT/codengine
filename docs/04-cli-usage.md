@@ -208,6 +208,10 @@ Chaque package est sauvegardé dans un fichier `NOM_PACKAGE.sql` contenant :
 - Header (specification)
 - Body (si `--no-bodies` non spécifié)
 
+### Encodage
+
+Par défaut les fichiers sont écrits en UTF-8. Pour les bases Oracle avec un charset différent (ex: `WE8ISO8859P15`), configurez `"encoding": "iso-8859-15"` dans la section `oracle` de `codengine.config.json`. Voir [Extraction Oracle](./07-oracle-extraction.md#encodage-des-fichiers-extraits) pour la correspondance complète.
+
 ---
 
 ## list-rules

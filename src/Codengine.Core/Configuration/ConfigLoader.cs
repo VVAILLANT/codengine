@@ -129,4 +129,10 @@ public class OracleConfig
     public bool IncludePackageBodies { get; set; } = true;
     public List<string> IncludePatterns { get; set; } = new();
     public List<string> ExcludePatterns { get; set; } = new();
+
+    /// <summary>
+    /// Encodage des fichiers SQL extraits (ex: "utf-8", "iso-8859-1", "windows-1252").
+    /// Par défaut : "utf-8".
+    /// </summary>
+    public string Encoding { get; set; } = "utf-8";
 }

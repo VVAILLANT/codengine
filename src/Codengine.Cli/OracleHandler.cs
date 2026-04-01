@@ -1,3 +1,4 @@
+using System.Text;
 using Codengine.Connectors.Oracle;
 using Codengine.Core.Configuration;
 
@@ -51,6 +52,7 @@ internal static class OracleHandler
         var effectiveIncludeBodies = !noBodies && (oracleConfig?.IncludePackageBodies ?? true);
         var effectiveInclude = include.Length > 0 ? include.ToList() : oracleConfig?.IncludePatterns ?? new List<string>();
         var effectiveExclude = exclude.Length > 0 ? exclude.ToList() : oracleConfig?.ExcludePatterns ?? new List<string>();
+        var effectiveEncoding = ResolveEncoding(oracleConfig?.Encoding);
 
         if (string.IsNullOrWhiteSpace(effectiveConnectionString))
         {
@@ -69,7 +71,8 @@ internal static class OracleHandler
             OutputDirectory = effectiveOutput,
             IncludePackageBodies = effectiveIncludeBodies,
             IncludePatterns = effectiveInclude,
-            ExcludePatterns = effectiveExclude
+            ExcludePatterns = effectiveExclude,
+            Encoding = effectiveEncoding
         };
 
         var extractor = new OraclePackageExtractor(config);
@@ -91,5 +94,23 @@ internal static class OracleHandler
         Console.WriteLine();
 
         await extractor.ExtractAndSaveAsync();
+    }
+
+    private static Encoding ResolveEncoding(string? encodingName)
+    {
+        if (string.IsNullOrWhiteSpace(encodingName))
+            return Encoding.UTF8;
+
+        try
+        {
+            return Encoding.GetEncoding(encodingName);
+        }
+        catch (ArgumentException)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"Encodage '{encodingName}' non reconnu, utilisation de UTF-8 par défaut.");
+            Console.ResetColor();
+            return Encoding.UTF8;
+        }
     }
 }

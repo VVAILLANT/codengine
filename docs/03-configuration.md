@@ -120,6 +120,7 @@ Cela crée un fichier `codengine.config.json` avec les valeurs par défaut.
 | `includePackageBodies` | boolean | Extraire les bodies |
 | `includePatterns` | string[] | Patterns d'inclusion (ex: `PKG_*`) |
 | `excludePatterns` | string[] | Patterns d'exclusion |
+| `encoding` | string | Encodage des fichiers extraits (défaut: `utf-8`) |
 
 ## Priorité des options
 
@@ -177,7 +178,8 @@ codengine analyze ./src -d COD006
     "schema": "APP_SCHEMA",
     "outputDirectory": "./plsql",
     "includePatterns": ["PKG_*"],
-    "excludePatterns": ["PKG_TEST_*"]
+    "excludePatterns": ["PKG_TEST_*"],
+    "encoding": "iso-8859-15"
   }
 }
 ```

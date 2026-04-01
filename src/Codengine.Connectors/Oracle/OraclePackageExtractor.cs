@@ -12,6 +12,7 @@ public class OraclePackageExtractorConfig
     public bool IncludePackageBodies { get; init; } = true;
     public List<string> IncludePatterns { get; init; } = new();
     public List<string> ExcludePatterns { get; init; } = new();
+    public Encoding Encoding { get; init; } = Encoding.UTF8;
 }
 
 public class OraclePackageExtractor : ISourceConnector
@@ -79,7 +80,7 @@ public class OraclePackageExtractor : ISourceConnector
         {
             var fileName = $"{source.Name}.sql";
             var filePath = Path.Combine(_config.OutputDirectory, fileName);
-            await File.WriteAllTextAsync(filePath, source.Content, cancellationToken);
+            await File.WriteAllTextAsync(filePath, source.Content, _config.Encoding, cancellationToken);
             Console.WriteLine($"Extrait: {fileName}");
         }
 

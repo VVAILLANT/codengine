@@ -175,7 +175,8 @@ Dans `codengine.config.json` :
     "outputDirectory": "./plsql",
     "includePackageBodies": true,
     "includePatterns": ["PKG_*"],
-    "excludePatterns": ["PKG_TEST_*", "PKG_DEBUG_*"]
+    "excludePatterns": ["PKG_TEST_*", "PKG_DEBUG_*"],
+    "encoding": "utf-8"
   }
 }
 ```
@@ -226,6 +227,41 @@ codengine extract-oracle -c "..." \
 # Pour documentation API
 codengine extract-oracle -c "..." --no-bodies -o ./docs/api
 ```
+
+## Encodage des fichiers extraits
+
+Par défaut, les fichiers `.sql` sont écrits en **UTF-8**. Si votre base Oracle utilise un charset différent (courant sur les bases européennes), configurez l'encodage dans `codengine.config.json` pour que les caractères accentués soient correctement préservés.
+
+### Trouver le charset Oracle
+
+```sql
+SELECT VALUE FROM NLS_DATABASE_PARAMETERS WHERE PARAMETER = 'NLS_CHARACTERSET';
+```
+
+### Correspondance NLS_CHARACTERSET → encoding
+
+| NLS_CHARACTERSET | `"encoding"` |
+|---|---|
+| `AL32UTF8` | `"utf-8"` (défaut) |
+| `UTF8` | `"utf-8"` |
+| `WE8ISO8859P1` | `"iso-8859-1"` |
+| `WE8ISO8859P15` | `"iso-8859-15"` |
+| `WE8MSWIN1252` | `"windows-1252"` |
+
+### Exemple
+
+```json
+{
+  "oracle": {
+    "connectionString": "...",
+    "encoding": "iso-8859-15"
+  }
+}
+```
+
+> **Note** : la lecture depuis Oracle est toujours correcte (le driver convertit automatiquement vers .NET). L'encodage ne concerne que l'écriture des fichiers `.sql`.
+
+---
 
 ## Dépannage
 
