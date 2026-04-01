@@ -99,6 +99,28 @@ codengine extract-oracle --config
 codengine extract-oracle --config -c "Data Source=//host:1521/SID;User Id=user;Password=pass;"
 ```
 
+### Formater le code PL/SQL
+
+```bash
+# Formater les fichiers .sql du répertoire configuré (oracle.outputDirectory)
+codengine format-oracle --config
+
+# Formater un répertoire spécifique
+codengine format-oracle C:\Projects\GIT\MROAD\Database\PACKAGE
+
+# Prévisualiser les changements sans modifier les fichiers
+codengine format-oracle --config --dry-run
+
+# Créer un backup (.bak) avant modification
+codengine format-oracle --config --backup
+
+# Personnaliser l'indentation
+codengine format-oracle --config --indent-size 2
+
+# Désactiver la mise en majuscules des mots-clés
+codengine format-oracle --config --uppercase-keywords false
+```
+
 ### Autres commandes
 
 ```bash
@@ -144,6 +166,15 @@ Créez un fichier `codengine.config.json` à la racine de votre projet :
     "format": "console",
     "verbose": false,
     "includeCodeSnippets": true
+  },
+  "oracle": {
+    "outputDirectory": "./oracle_packages",
+    "format": {
+      "indentSize": 4,
+      "uppercaseKeywords": true,
+      "maxConsecutiveBlankLines": 1,
+      "trimTrailingWhitespace": true
+    }
   },
   "failOnError": true,
   "failOnWarning": false

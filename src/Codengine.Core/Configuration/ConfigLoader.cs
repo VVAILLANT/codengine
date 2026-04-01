@@ -135,4 +135,32 @@ public class OracleConfig
     /// Par défaut : "utf-8".
     /// </summary>
     public string Encoding { get; set; } = "utf-8";
+
+    /// <summary>
+    /// Options de formatage PL/SQL pour la commande format-oracle.
+    /// </summary>
+    public OracleFormatConfig Format { get; set; } = new();
+}
+
+public class OracleFormatConfig
+{
+    /// <summary>
+    /// Nombre d'espaces par niveau d'indentation (défaut: 4).
+    /// </summary>
+    public int IndentSize { get; set; } = 4;
+
+    /// <summary>
+    /// Mettre les mots-clés PL/SQL en majuscules (défaut: true).
+    /// </summary>
+    public bool UppercaseKeywords { get; set; } = true;
+
+    /// <summary>
+    /// Nombre maximal de lignes vides consécutives conservées (défaut: 1).
+    /// </summary>
+    public int MaxConsecutiveBlankLines { get; set; } = 1;
+
+    /// <summary>
+    /// Supprimer les espaces en fin de ligne (défaut: true).
+    /// </summary>
+    public bool TrimTrailingWhitespace { get; set; } = true;
 }

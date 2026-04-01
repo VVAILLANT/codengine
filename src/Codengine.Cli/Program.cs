@@ -16,6 +16,7 @@ class Program
         rootCommand.AddCommand(CreateAnalyzeCommand());
         rootCommand.AddCommand(CreateFixCommand());
         rootCommand.AddCommand(CreateExtractOracleCommand());
+        rootCommand.AddCommand(CreateFormatOracleCommand());
         rootCommand.AddCommand(CreateListRulesCommand());
         rootCommand.AddCommand(CreateInitCommand());
 
@@ -229,6 +230,58 @@ class Program
         return command;
     }
 
+    private static Command CreateFormatOracleCommand()
+    {
+        var pathArgument = new Argument<string?>(
+            "path",
+            getDefaultValue: () => null,
+            description: "Répertoire contenant les fichiers .sql à formater");
+
+        var dryRunOption = new Option<bool>(
+            "--dry-run",
+            "Afficher les changements sans modifier les fichiers");
+
+        var backupOption = new Option<bool>(
+            "--backup",
+            "Créer un fichier .bak avant modification");
+
+        var indentSizeOption = new Option<int?>(
+            "--indent-size",
+            "Nombre d'espaces par niveau d'indentation");
+
+        var uppercaseOption = new Option<bool?>(
+            "--uppercase-keywords",
+            "Mettre les mots-clés PL/SQL en majuscules");
+
+        var configOption = new Option<bool>(
+            "--config",
+            "Utiliser les valeurs de la section 'oracle' dans codengine.config.json");
+
+        var command = new Command("format-oracle", "Formater les fichiers PL/SQL Oracle")
+        {
+            pathArgument,
+            dryRunOption,
+            backupOption,
+            indentSizeOption,
+            uppercaseOption,
+            configOption
+        };
+
+        command.SetHandler(async context =>
+        {
+            var path = context.ParseResult.GetValueForArgument(pathArgument);
+            var dryRun = context.ParseResult.GetValueForOption(dryRunOption);
+            var backup = context.ParseResult.GetValueForOption(backupOption);
+            var indentSize = context.ParseResult.GetValueForOption(indentSizeOption);
+            var uppercaseKeywords = context.ParseResult.GetValueForOption(uppercaseOption);
+            var useConfig = context.ParseResult.GetValueForOption(configOption);
+
+            await FormatOracleHandler.RunAsync(path, dryRun, backup, indentSize, uppercaseKeywords, useConfig);
+        });
+
+        return command;
+    }
+
     private static Command CreateInitCommand()
     {
         var command = new Command("init", "Créer un fichier de configuration codengine.config.json");
@@ -277,7 +330,13 @@ class Program
     ""outputDirectory"": ""./oracle_packages"",
     ""includePackageBodies"": true,
     ""includePatterns"": [],
-    ""excludePatterns"": []
+    ""excludePatterns"": [],
+    ""format"": {
+      ""indentSize"": 4,
+      ""uppercaseKeywords"": true,
+      ""maxConsecutiveBlankLines"": 1,
+      ""trimTrailingWhitespace"": true
+    }
   },
   ""failOnError"": true,
   ""failOnWarning"": false

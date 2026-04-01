@@ -26,7 +26,7 @@ codengine/
 │   │   └── Fixes/                # Auto-fixers par règle (NullCheck, EmptyCatch, AsyncNaming)
 │   │
 │   ├── Codengine.Connectors/     # Connecteurs externes
-│   │   └── Oracle/               # OraclePackageExtractor
+│   │   └── Oracle/               # OraclePackageExtractor, PlSqlFormatter
 │   │
 │   ├── Codengine.Reporters/      # Sortie des résultats
 │   │   ├── ConsoleReporter.cs
@@ -38,11 +38,13 @@ codengine/
 │       ├── AnalyzeHandler.cs     # Logique analyze, tag/untag
 │       ├── FixHandler.cs         # Logique auto-fix
 │       ├── OracleHandler.cs      # Logique extraction Oracle
+│       ├── FormatOracleHandler.cs # Logique formatage PL/SQL
 │       └── FileEncodingHelper.cs # Pont vers Core.IO.FileEncodingHelper
 │
 └── tests/
     ├── Codengine.Rules.Tests/    # Tests xUnit (règles + ignore)
-    └── Codengine.Core.Tests/     # Tests xUnit (core)
+    ├── Codengine.Core.Tests/     # Tests xUnit (core)
+    └── Codengine.Connectors.Tests/ # Tests xUnit (PlSqlFormatter)
 ```
 
 ### Graphe de dépendances
@@ -118,6 +120,7 @@ codengine analyze ./src --untag            # Retirer les annotations
 codengine fix ./src                        # Auto-fix
 codengine fix ./src --dry-run              # Preview fixes
 codengine extract-oracle -c "..."          # Extraire packages Oracle
+codengine format-oracle --config           # Formater PL/SQL Oracle
 codengine list-rules                       # Lister règles
 codengine init                             # Créer config
 ```
@@ -182,8 +185,8 @@ public class MaRegle : RuleBase
 - 9 règles implémentées
 - 3 auto-fixers (COD001, COD003, COD005)
 - 3 reporters (Console, JSON, HTML)
-- 1 connecteur (Oracle)
-- 40 tests unitaires passent
+- 1 connecteur (Oracle) + formateur PL/SQL
+- 67 tests unitaires passent
 
 ## Documentation utilisateur
 

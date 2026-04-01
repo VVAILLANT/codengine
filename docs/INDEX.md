@@ -14,6 +14,7 @@
 10. [Développement de règles](./10-custom-rules.md)
 11. [API et architecture](./11-architecture.md)
 12. [FAQ et dépannage](./12-faq.md)
+13. [Formatage PL/SQL Oracle](./13-oracle-formatting.md)
 
 ---
 

@@ -65,6 +65,8 @@ Connecteurs vers des sources externes :
 |-----------|-------------|
 | `Abstractions/` | Interface ISourceConnector |
 | `Oracle/` | Extraction des packages PL/SQL |
+| `Oracle/PlSqlFormatter` | Formateur PL/SQL (state machine) |
+| `Oracle/PlSqlFormatterOptions` | Options de formatage |
 | `FileSystem/` | (Futur) Lecture de fichiers |
 
 **Dépendances** :
@@ -92,6 +94,10 @@ Application console :
 | Composant | Description |
 |-----------|-------------|
 | `Program.cs` | Point d'entrée, définition des commandes |
+| `AnalyzeHandler.cs` | Logique analyze, tag/untag |
+| `FixHandler.cs` | Logique auto-fix |
+| `OracleHandler.cs` | Logique extraction Oracle |
+| `FormatOracleHandler.cs` | Logique formatage PL/SQL |
 
 **Dépendances** :
 - Tous les autres projets

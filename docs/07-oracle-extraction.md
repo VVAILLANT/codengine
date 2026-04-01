@@ -198,6 +198,22 @@ Les arguments CLI ont toujours priorité sur le fichier de configuration :
 codengine extract-oracle --config -s AUTRE_SCHEMA -o ./custom-output
 ```
 
+## Formatage du code PL/SQL
+
+Après extraction, vous pouvez formater les fichiers `.sql` pour améliorer la lisibilité :
+
+```bash
+# Formater les fichiers du répertoire configuré
+codengine format-oracle --config
+
+# Prévisualiser les changements
+codengine format-oracle --config --dry-run
+```
+
+Le formateur applique une indentation cohérente, normalise les mots-clés en majuscules et nettoie les espaces superflus, tout en préservant l'intégrité du code.
+
+Pour la documentation complète du formatage, voir [Formatage PL/SQL Oracle](./13-oracle-formatting.md).
+
 ## Exemples d'utilisation
 
 ### Extraction pour Git

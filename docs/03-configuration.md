@@ -57,7 +57,13 @@ Cela crée un fichier `codengine.config.json` avec les valeurs par défaut.
     "outputDirectory": "./oracle_packages",
     "includePackageBodies": true,
     "includePatterns": [],
-    "excludePatterns": ["SYS_*", "DBMS_*"]
+    "excludePatterns": ["SYS_*", "DBMS_*"],
+    "format": {
+      "indentSize": 4,
+      "uppercaseKeywords": true,
+      "maxConsecutiveBlankLines": 1,
+      "trimTrailingWhitespace": true
+    }
   }
 }
 ```
@@ -122,6 +128,17 @@ Cela crée un fichier `codengine.config.json` avec les valeurs par défaut.
 | `excludePatterns` | string[] | Patterns d'exclusion |
 | `encoding` | string | Encodage des fichiers extraits (défaut: `utf-8`) |
 
+### Configuration du formatage PL/SQL (`oracle.format`)
+
+| Option | Type | Défaut | Description |
+|--------|------|--------|-------------|
+| `indentSize` | int | `4` | Nombre d'espaces par niveau d'indentation |
+| `uppercaseKeywords` | boolean | `true` | Mettre les mots-clés PL/SQL en majuscules |
+| `maxConsecutiveBlankLines` | int | `1` | Nombre maximal de lignes vides consécutives |
+| `trimTrailingWhitespace` | boolean | `true` | Supprimer les espaces en fin de ligne |
+
+Ces options sont utilisées par la commande `format-oracle`. Voir [Formatage PL/SQL](./13-oracle-formatting.md).
+
 ## Priorité des options
 
 Les options de la ligne de commande ont priorité sur le fichier de configuration :
@@ -179,7 +196,11 @@ codengine analyze ./src -d COD006
     "outputDirectory": "./plsql",
     "includePatterns": ["PKG_*"],
     "excludePatterns": ["PKG_TEST_*"],
-    "encoding": "iso-8859-15"
+    "encoding": "iso-8859-15",
+    "format": {
+      "indentSize": 4,
+      "uppercaseKeywords": true
+    }
   }
 }
 ```
