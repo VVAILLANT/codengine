@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(DOTNET=\"/c/Program Files/dotnet/dotnet.exe\" && \"$DOTNET\" build src/Codengine.Reporters 2>&1 | tail -5)",
+      "Bash(\"/c/Program Files/dotnet/dotnet.exe\" build src/Codengine.Reporters 2>&1 | tail -8)",
+      "Bash(\"/c/Program Files/dotnet/dotnet.exe\" pack src/Codengine.Cli -o src/Codengine.Cli/nupkg 2>&1 | tail -5 && \"/c/Program Files/dotnet/dotnet.exe\" tool update --global --add-source src/Codengine.Cli/nupkg Codengine.Cli 2>&1)",
+      "Bash(git add:*)"
+    ]
+  }
+}

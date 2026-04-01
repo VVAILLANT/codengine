@@ -125,19 +125,17 @@ class Program
 
     private static Command CreateExtractOracleCommand()
     {
-        var connectionStringOption = new Option<string>(
+        var connectionStringOption = new Option<string?>(
             new[] { "-c", "--connection" },
-            "Chaîne de connexion Oracle")
-        { IsRequired = true };
+            "Chaîne de connexion Oracle");
 
         var schemaOption = new Option<string?>(
             new[] { "-s", "--schema" },
             "Schéma Oracle (par défaut: utilisateur courant)");
 
-        var outputOption = new Option<string>(
+        var outputOption = new Option<string?>(
             new[] { "-o", "--output" },
-            getDefaultValue: () => "./oracle_packages",
-            description: "Répertoire de sortie");
+            "Répertoire de sortie (par défaut: ./oracle_packages)");
 
         var includeOption = new Option<string[]>(
             new[] { "-i", "--include" },
@@ -151,6 +149,10 @@ class Program
             "--no-bodies",
             "Ne pas extraire les bodies des packages");
 
+        var configOption = new Option<bool>(
+            "--config",
+            "Utiliser les valeurs par défaut de la section 'oracle' dans codengine.config.json");
+
         var command = new Command("extract-oracle", "Extraire les packages PL/SQL d'Oracle")
         {
             connectionStringOption,
@@ -158,19 +160,21 @@ class Program
             outputOption,
             includeOption,
             excludeOption,
-            noBodiesOption
+            noBodiesOption,
+            configOption
         };
 
         command.SetHandler(async context =>
         {
-            var connectionString = context.ParseResult.GetValueForOption(connectionStringOption)!;
+            var connectionString = context.ParseResult.GetValueForOption(connectionStringOption);
             var schema = context.ParseResult.GetValueForOption(schemaOption);
-            var output = context.ParseResult.GetValueForOption(outputOption)!;
+            var output = context.ParseResult.GetValueForOption(outputOption);
             var include = context.ParseResult.GetValueForOption(includeOption) ?? Array.Empty<string>();
             var exclude = context.ParseResult.GetValueForOption(excludeOption) ?? Array.Empty<string>();
             var noBodies = context.ParseResult.GetValueForOption(noBodiesOption);
+            var useConfig = context.ParseResult.GetValueForOption(configOption);
 
-            await OracleHandler.RunAsync(connectionString, schema, output, include, exclude, noBodies);
+            await OracleHandler.RunAsync(connectionString, schema, output, include, exclude, noBodies, useConfig);
         });
 
         return command;
@@ -266,6 +270,14 @@ class Program
     ""format"": ""console"",
     ""verbose"": false,
     ""includeCodeSnippets"": true
+  },
+  ""oracle"": {
+    ""connectionString"": """",
+    ""schema"": null,
+    ""outputDirectory"": ""./oracle_packages"",
+    ""includePackageBodies"": true,
+    ""includePatterns"": [],
+    ""excludePatterns"": []
   },
   ""failOnError"": true,
   ""failOnWarning"": false

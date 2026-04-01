@@ -1,29 +1,64 @@
 using Codengine.Connectors.Oracle;
+using Codengine.Core.Configuration;
 
 namespace Codengine.Cli;
 
 internal static class OracleHandler
 {
     public static async Task RunAsync(
-        string connectionString,
+        string? connectionString,
         string? schema,
-        string output,
+        string? output,
         string[] include,
         string[] exclude,
-        bool noBodies)
+        bool noBodies,
+        bool useConfig = false)
     {
         Program.PrintHeader();
         Console.WriteLine("Extraction Oracle");
         Console.WriteLine();
 
+        // Charger la configuration uniquement si --config est passé
+        OracleConfig? oracleConfig = null;
+        if (useConfig)
+        {
+            var fileConfig = await ConfigLoader.LoadAsync();
+            oracleConfig = fileConfig?.Oracle;
+        }
+
+        if (oracleConfig != null)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine("Configuration chargée depuis codengine.config.json");
+            Console.ResetColor();
+        }
+
+        // Fusionner : les arguments CLI ont priorité sur la configuration
+        var effectiveConnectionString = connectionString ?? oracleConfig?.ConnectionString;
+        var effectiveSchema = schema ?? oracleConfig?.Schema;
+        var effectiveOutput = output ?? oracleConfig?.OutputDirectory ?? "./oracle_packages";
+        var effectiveIncludeBodies = !noBodies && (oracleConfig?.IncludePackageBodies ?? true);
+        var effectiveInclude = include.Length > 0 ? include.ToList() : oracleConfig?.IncludePatterns ?? new List<string>();
+        var effectiveExclude = exclude.Length > 0 ? exclude.ToList() : oracleConfig?.ExcludePatterns ?? new List<string>();
+
+        if (string.IsNullOrWhiteSpace(effectiveConnectionString))
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("Erreur : la chaîne de connexion est requise.");
+            Console.WriteLine("Spécifiez-la via --connection ou dans la section 'oracle' de codengine.config.json.");
+            Console.ResetColor();
+            Environment.ExitCode = 1;
+            return;
+        }
+
         var config = new OraclePackageExtractorConfig
         {
-            ConnectionString = connectionString,
-            Schema = schema,
-            OutputDirectory = output,
-            IncludePackageBodies = !noBodies,
-            IncludePatterns = include.ToList(),
-            ExcludePatterns = exclude.ToList()
+            ConnectionString = effectiveConnectionString,
+            Schema = effectiveSchema,
+            OutputDirectory = effectiveOutput,
+            IncludePackageBodies = effectiveIncludeBodies,
+            IncludePatterns = effectiveInclude,
+            ExcludePatterns = effectiveExclude
         };
 
         var extractor = new OraclePackageExtractor(config);

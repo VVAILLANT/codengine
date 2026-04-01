@@ -32,16 +32,27 @@ codengine extract-oracle \
   -e "PKG_TEST_*,PKG_DEBUG_*"
 ```
 
+### Utilisation avec fichier de configuration
+
+```bash
+# Utiliser les valeurs par défaut de codengine.config.json
+codengine extract-oracle --config
+
+# Utiliser la config avec override de certaines options
+codengine extract-oracle --config -s AUTRE_SCHEMA -o ./custom-output
+```
+
 ## Options
 
 | Option | Alias | Description | Défaut |
 |--------|-------|-------------|--------|
-| `--connection` | `-c` | Chaîne de connexion Oracle | *Requis* |
+| `--connection` | `-c` | Chaîne de connexion Oracle | *Requis* (sauf avec `--config`) |
 | `--schema` | `-s` | Schéma à extraire | Utilisateur courant |
 | `--output` | `-o` | Répertoire de sortie | `./oracle_packages` |
 | `--include` | `-i` | Patterns d'inclusion | Tous |
 | `--exclude` | `-e` | Patterns d'exclusion | Aucun |
 | `--no-bodies` | | Extraire uniquement les headers | false |
+| `--config` | | Utiliser les valeurs de la section `oracle` de `codengine.config.json` | false |
 
 ## Format de chaîne de connexion
 
@@ -152,6 +163,8 @@ Les packages correspondant seront exclus.
 
 ## Configuration via fichier
 
+La commande `extract-oracle` peut lire ses valeurs par défaut depuis la section `oracle` de `codengine.config.json` lorsque le flag `--config` est passé.
+
 Dans `codengine.config.json` :
 
 ```json
@@ -170,7 +183,18 @@ Dans `codengine.config.json` :
 Puis simplement :
 
 ```bash
-codengine extract-oracle -c "..."
+codengine extract-oracle --config
+```
+
+> **Note** : sans `--config`, le fichier de configuration est ignoré et la commande fonctionne uniquement avec les arguments CLI (comportement classique).
+
+### Priorité des valeurs
+
+Les arguments CLI ont toujours priorité sur le fichier de configuration :
+
+```bash
+# Utilise la connexion du fichier config mais override le schéma et le répertoire de sortie
+codengine extract-oracle --config -s AUTRE_SCHEMA -o ./custom-output
 ```
 
 ## Exemples d'utilisation

@@ -169,12 +169,13 @@ codengine extract-oracle [options]
 
 | Option | Alias | Description | Requis |
 |--------|-------|-------------|--------|
-| `--connection` | `-c` | Chaîne de connexion Oracle | Oui |
+| `--connection` | `-c` | Chaîne de connexion Oracle | Oui (sauf avec `--config`) |
 | `--schema` | `-s` | Schéma Oracle | Non |
 | `--output` | `-o` | Répertoire de sortie | Non |
 | `--include` | `-i` | Patterns d'inclusion | Non |
 | `--exclude` | `-e` | Patterns d'exclusion | Non |
 | `--no-bodies` | | Ne pas extraire les bodies | Non |
+| `--config` | | Utiliser les valeurs de la section `oracle` de `codengine.config.json` | Non |
 
 ### Exemples
 
@@ -193,6 +194,12 @@ codengine extract-oracle -c "..." --no-bodies
 
 # Spécifier le répertoire de sortie
 codengine extract-oracle -c "..." -o ./plsql-packages
+
+# Utiliser les valeurs par défaut depuis codengine.config.json
+codengine extract-oracle --config
+
+# Utiliser la config avec override d'options
+codengine extract-oracle --config -s AUTRE_SCHEMA -o ./custom-output
 ```
 
 ### Format de sortie

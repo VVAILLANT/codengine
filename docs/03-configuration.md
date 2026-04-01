@@ -181,3 +181,16 @@ codengine analyze ./src -d COD006
   }
 }
 ```
+
+Pour utiliser cette configuration avec `extract-oracle`, passez le flag `--config` :
+
+```bash
+# Utilise toutes les valeurs de la section oracle
+codengine extract-oracle --config
+
+# Override du schéma uniquement
+codengine extract-oracle --config -s AUTRE_SCHEMA
+```
+
+> **Note** : sans `--config`, la commande `extract-oracle` ignore le fichier de configuration et nécessite au minimum `--connection`.
+```

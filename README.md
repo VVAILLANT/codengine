@@ -91,6 +91,12 @@ codengine extract-oracle -c "..." -s MY_SCHEMA -o ./packages
 
 # Filtrer les packages
 codengine extract-oracle -c "..." -i "PKG_*" -e "PKG_TEST_*"
+
+# En récupérant les paramètres du fichier de configuration (codengine.config.json)
+codengine extract-oracle --config
+
+# En récupérant les paramètres du fichier de configuration + surcharge de paramètres
+codengine extract-oracle --config -c "Data Source=//host:1521/SID;User Id=user;Password=pass;"
 ```
 
 ### Autres commandes
