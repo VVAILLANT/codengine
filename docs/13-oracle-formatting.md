@@ -5,6 +5,7 @@
 La commande `format-oracle` formate les fichiers `.sql` contenant du code PL/SQL pour améliorer la lisibilité :
 
 - **Indentation cohérente** des blocs (`BEGIN`/`END`, `IF`/`END IF`, `LOOP`/`END LOOP`, etc.)
+- **Alignement des paramètres** sous la parenthèse ouvrante pour les déclarations multi-lignes
 - **Normalisation des mots-clés** en majuscules (optionnel)
 - **Nettoyage des espaces** : suppression des trailing whitespace, consolidation des lignes vides
 - **Préservation de l'intégrité** : seule l'indentation est modifiée, jamais le contenu du code
@@ -116,6 +117,8 @@ Formateur built-in à base de machine à états. Gère l'indentation de tous les
 
 - ✅ Fiable et déterministe
 - ✅ Ne modifie jamais le contenu, uniquement l'indentation
+- ✅ Alignement des paramètres sous la parenthèse ouvrante (déclarations multi-lignes)
+- ✅ Gestion du `THEN` sur ligne séparée et des signatures multi-lignes (`) IS`/`) AS`)
 - ✅ Vérification d'intégrité intégrée
 - ❌ Ne reformate pas les requêtes SQL embarquées
 
@@ -184,6 +187,9 @@ Le formateur reconnaît et indente correctement les structures suivantes :
 | CASE | `CASE` | `END CASE;` | Indente les WHEN |
 | EXCEPTION | `EXCEPTION` | (fermé par le `END;` parent) | Revient au niveau du BEGIN |
 | WHEN (exception) | `WHEN ... THEN` | — | Indente le handler |
+| THEN (séparé) | `THEN` sur sa propre ligne | — | Pousse l'indentation comme `IF ... THEN` sur une ligne |
+| Signature multi-ligne | `) IS` / `) AS` / `) RETURN ... IS` | `END nom;` | Gère la fin de signature sur la ligne de fermeture des paramètres |
+| Paramètres multi-lignes | `PROCEDURE p(param1,` | `)` | Aligne les paramètres sous la parenthèse ouvrante |
 
 ## Exemple de résultat
 
@@ -191,14 +197,16 @@ Le formateur reconnaît et indente correctement les structures suivantes :
 
 ```sql
 CREATE OR REPLACE PACKAGE BODY PKG_USERS AS
-PROCEDURE create_user(p_name IN VARCHAR2, p_email IN VARCHAR2) IS
+PROCEDURE create_user(p_name IN VARCHAR2,
+p_email IN VARCHAR2,
+p_role IN VARCHAR2 DEFAULT 'USER') IS
 v_count NUMBER;
 BEGIN
 SELECT COUNT(*) INTO v_count FROM users WHERE email = p_email;
 IF v_count > 0 THEN
 RAISE_APPLICATION_ERROR(-20001, 'Email exists');
 ELSE
-INSERT INTO users(name, email) VALUES(p_name, p_email);
+INSERT INTO users(name, email, role) VALUES(p_name, p_email, p_role);
 COMMIT;
 END IF;
 EXCEPTION
@@ -206,6 +214,12 @@ WHEN OTHERS THEN
 ROLLBACK;
 RAISE;
 END create_user;
+
+PROCEDURE delete_user(p_id IN NUMBER) IS
+BEGIN
+DELETE FROM users WHERE id = p_id;
+COMMIT;
+END delete_user;
 END PKG_USERS;
 ```
 
@@ -214,7 +228,9 @@ END PKG_USERS;
 ```sql
 CREATE OR REPLACE PACKAGE BODY PKG_USERS AS
 
-    PROCEDURE create_user(p_name IN VARCHAR2, p_email IN VARCHAR2) IS
+    PROCEDURE create_user(p_name  IN VARCHAR2,
+                          p_email IN VARCHAR2,
+                          p_role  IN VARCHAR2 DEFAULT 'USER') IS
         v_count NUMBER;
     BEGIN
         SELECT COUNT(*) INTO v_count FROM users WHERE email = p_email;
@@ -222,7 +238,7 @@ CREATE OR REPLACE PACKAGE BODY PKG_USERS AS
         IF v_count > 0 THEN
             RAISE_APPLICATION_ERROR(-20001, 'Email exists');
         ELSE
-            INSERT INTO users(name, email) VALUES(p_name, p_email);
+            INSERT INTO users(name, email, role) VALUES(p_name, p_email, p_role);
             COMMIT;
         END IF;
     EXCEPTION
@@ -231,8 +247,17 @@ CREATE OR REPLACE PACKAGE BODY PKG_USERS AS
             RAISE;
     END create_user;
 
+    PROCEDURE delete_user(p_id IN NUMBER) IS
+    BEGIN
+        DELETE FROM users WHERE id = p_id;
+        COMMIT;
+    END delete_user;
+
 END PKG_USERS;
 ```
+
+> **Remarquez** l'alignement des paramètres (`p_email`, `p_role`) sous la parenthèse ouvrante
+> de `create_user`, ainsi que l'indentation correcte de chaque procédure successive dans le package.
 
 ## Garde-fous
 

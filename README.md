@@ -101,6 +101,8 @@ codengine extract-oracle --config -c "Data Source=//host:1521/SID;User Id=user;P
 
 ### Formater le code PL/SQL
 
+Le formateur PL/SQL gère l'indentation des blocs (`BEGIN`/`END`, `IF`/`THEN`, `LOOP`, etc.), l'alignement des paramètres sous la parenthèse ouvrante, et le reformatage des requêtes SQL embarquées (moteur `combined`).
+
 ```bash
 # Formater les fichiers .sql du répertoire configuré (oracle.outputDirectory)
 codengine format-oracle --config

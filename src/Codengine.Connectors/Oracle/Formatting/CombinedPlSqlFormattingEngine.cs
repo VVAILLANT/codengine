@@ -180,7 +180,7 @@ public sealed partial class CombinedPlSqlFormattingEngine : IPlSqlFormattingEngi
             }
             else
             {
-                sb.Append(indent).Append(line.TrimStart()).Append('\n');
+                sb.Append(indent).Append(line).Append('\n');
             }
         }
 

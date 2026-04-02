@@ -4,7 +4,7 @@
 
 Codengine est un analyseur de code statique maison (style SonarQube) pour :
 - **C# (.NET Framework 4.8 / .NET 9)** : Analyse via Roslyn AST
-- **PL/SQL Oracle** : Extraction des packages depuis un schéma Oracle
+- **PL/SQL Oracle** : Extraction des packages depuis un schéma Oracle + formatage multi-moteurs (indentation des blocs, alignement des paramètres, reformatage SQL)
 
 **Objectif principal** : Clean code automatique sans IA, basé sur des règles métier.
 
@@ -28,6 +28,7 @@ codengine/
 │   ├── Codengine.Connectors/     # Connecteurs externes
 │   │   └── Oracle/               # OraclePackageExtractor, PlSqlFormatter
 │   │       └── Formatting/       # Moteurs : Basic, SqlFormatterNet, Combined, Selector
+│   │                             # PlSqlFormatter : machine à états avec alignement parenthèses
 │   │
 │   ├── Codengine.Reporters/      # Sortie des résultats
 │   │   ├── ConsoleReporter.cs
@@ -188,8 +189,9 @@ public class MaRegle : RuleBase
 - 9 règles implémentées
 - 3 auto-fixers (COD001, COD003, COD005)
 - 3 reporters (Console, JSON, HTML)
-- 1 connecteur (Oracle) + formateur PL/SQL
-- 67 tests unitaires passent
+- 1 connecteur (Oracle) + formateur PL/SQL multi-moteurs (Basic, SqlFormatterNet, Combined)
+- 123 tests unitaires passent (78 connecteurs + 45 règles)
+- Version actuelle : 1.0.51
 
 ## Documentation utilisateur
 
@@ -210,6 +212,7 @@ La documentation complète est dans `docs/` :
 | `10-custom-rules.md` | Créer des règles personnalisées |
 | `11-architecture.md` | Architecture technique |
 | `12-faq.md` | FAQ et dépannage |
+| `13-oracle-formatting.md` | Formatage PL/SQL multi-moteurs (Basic, SqlFormatterNet, Combined) |
 
 ### Maintenance de la documentation
 

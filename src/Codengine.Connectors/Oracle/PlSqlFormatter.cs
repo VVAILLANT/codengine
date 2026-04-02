@@ -63,6 +63,10 @@ public sealed partial class PlSqlFormatter
         bool inBlockComment = false;
         int consecutiveBlankLines = 0;
 
+        // Alignement des paramètres sur la parenthèse ouvrante
+        int parenAlignColumn = -1;
+        int parenDepth = 0;
+
         for (int i = 0; i < lines.Length; i++)
         {
             var rawLine = lines[i].TrimEnd('\r');
@@ -80,6 +84,11 @@ public sealed partial class PlSqlFormatter
             }
             consecutiveBlankLines = 0;
 
+            // Indentation courante : alignement paren ou bloc
+            var currentIndent = parenDepth > 0 && parenAlignColumn >= 0
+                ? new string(' ', parenAlignColumn)
+                : Indent(indentLevel);
+
             // Si on est dans un commentaire bloc, on cherche la fin
             if (inBlockComment)
             {
@@ -88,14 +97,14 @@ public sealed partial class PlSqlFormatter
                 {
                     inBlockComment = false;
                 }
-                formattedLines.Add(Indent(indentLevel) + ApplyTrim(trimmed));
+                formattedLines.Add(currentIndent + ApplyTrim(trimmed));
                 continue;
             }
 
             // Commentaire ligne entière
             if (trimmed.StartsWith("--", StringComparison.Ordinal))
             {
-                formattedLines.Add(Indent(indentLevel) + ApplyTrim(trimmed));
+                formattedLines.Add(currentIndent + ApplyTrim(trimmed));
                 continue;
             }
 
@@ -103,7 +112,7 @@ public sealed partial class PlSqlFormatter
             if (trimmed.StartsWith("/*", StringComparison.Ordinal)
                 && !trimmed.Contains("*/", StringComparison.Ordinal))
             {
-                formattedLines.Add(Indent(indentLevel) + ApplyTrim(trimmed));
+                formattedLines.Add(currentIndent + ApplyTrim(trimmed));
                 inBlockComment = true;
                 continue;
             }
@@ -115,15 +124,42 @@ public sealed partial class PlSqlFormatter
             // Ajuster l'indentation selon le type de ligne
             AdjustIndentation(upper, ref indentLevel, blockStack);
 
+            // Recalculer l'indentation après l'ajustement de bloc
+            currentIndent = parenDepth > 0 && parenAlignColumn >= 0
+                ? new string(' ', parenAlignColumn)
+                : Indent(indentLevel);
+
             // Formater la ligne
             var lineContent = _options.UppercaseKeywords
                 ? UppercaseKeywordsInLine(trimmed)
                 : trimmed;
 
-            formattedLines.Add(Indent(indentLevel) + ApplyTrim(lineContent));
+            var formattedLine = currentIndent + ApplyTrim(lineContent);
+            formattedLines.Add(formattedLine);
 
             // Augmenter l'indentation après avoir écrit la ligne si nécessaire
             AdjustIndentationAfter(upper, ref indentLevel, blockStack);
+
+            // Suivi de l'alignement des parenthèses pour les listes de paramètres
+            int netParens = CountNetParens(significantText);
+            if (parenDepth == 0 && netParens > 0)
+            {
+                int col = FindOpenParenColumn(formattedLine);
+                if (col >= 0)
+                {
+                    parenAlignColumn = col;
+                }
+                parenDepth = netParens;
+            }
+            else if (parenDepth > 0)
+            {
+                parenDepth += netParens;
+                if (parenDepth <= 0)
+                {
+                    parenDepth = 0;
+                    parenAlignColumn = -1;
+                }
+            }
         }
 
         var formatted = string.Join("\n", formattedLines);
@@ -238,10 +274,22 @@ public sealed partial class PlSqlFormatter
     /// </summary>
     private static void AdjustIndentationAfter(string upper, ref int indentLevel, Stack<BlockInfo> blockStack)
     {
-        // END* — pas d'indent après
-        if (EndRegex().IsMatch(upper) || EndIfRegex().IsMatch(upper)
-            || EndLoopRegex().IsMatch(upper) || EndCaseRegex().IsMatch(upper))
+        // END IF / END LOOP / END CASE — pas d'indent après
+        if (EndIfRegex().IsMatch(upper) || EndLoopRegex().IsMatch(upper)
+            || EndCaseRegex().IsMatch(upper))
             return;
+
+        // END; / END nom; — après l'écriture, fermer aussi le SubProgram parent si présent
+        // (en PL/SQL, un seul END; ferme à la fois le BEGIN et le PROCEDURE/FUNCTION IS/AS)
+        if (EndRegex().IsMatch(upper))
+        {
+            if (blockStack.Count > 0 && blockStack.Peek().Type == BlockType.SubProgram)
+            {
+                var subBlock = blockStack.Pop();
+                indentLevel = subBlock.IndentLevel;
+            }
+            return;
+        }
 
         // BEGIN
         if (BeginRegex().IsMatch(upper))
@@ -259,16 +307,30 @@ public sealed partial class PlSqlFormatter
             return;
         }
 
-        // ELSIF ... THEN
-        if (upper.StartsWith("ELSIF", StringComparison.Ordinal))
+        // ELSIF ... THEN (only when THEN is on the same line)
+        if (upper.StartsWith("ELSIF", StringComparison.Ordinal) && upper.TrimEnd().EndsWith("THEN", StringComparison.Ordinal))
         {
             blockStack.Push(new BlockInfo(BlockType.If, indentLevel));
             indentLevel++;
             return;
         }
 
+        // ELSIF without THEN (multi-line condition) — standalone THEN will open the block
+        if (upper.StartsWith("ELSIF", StringComparison.Ordinal))
+        {
+            return;
+        }
+
         // ELSE
         if (ElseStandaloneRegex().IsMatch(upper))
+        {
+            blockStack.Push(new BlockInfo(BlockType.If, indentLevel));
+            indentLevel++;
+            return;
+        }
+
+        // Standalone THEN (multi-line IF/ELSIF condition)
+        if (ThenStandaloneRegex().IsMatch(upper))
         {
             blockStack.Push(new BlockInfo(BlockType.If, indentLevel));
             indentLevel++;
@@ -307,8 +369,16 @@ public sealed partial class PlSqlFormatter
             return;
         }
 
-        // IS / AS après PROCEDURE, FUNCTION
+        // IS / AS après PROCEDURE, FUNCTION (single line)
         if (IsAsBlockRegex().IsMatch(upper))
+        {
+            blockStack.Push(new BlockInfo(BlockType.SubProgram, indentLevel));
+            indentLevel++;
+            return;
+        }
+
+        // ) IS / ) AS — multi-line PROCEDURE/FUNCTION parameter list
+        if (CloseParenIsAsRegex().IsMatch(upper))
         {
             blockStack.Push(new BlockInfo(BlockType.SubProgram, indentLevel));
             indentLevel++;
@@ -519,6 +589,90 @@ public sealed partial class PlSqlFormatter
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Compte le nombre net de parenthèses ouvertes dans le texte significatif (hors strings/commentaires).
+    /// Retourne un nombre positif si plus de '(' que de ')'.
+    /// </summary>
+    private static int CountNetParens(string significantText)
+    {
+        int net = 0;
+        foreach (char c in significantText)
+        {
+            if (c == '(') net++;
+            else if (c == ')') net--;
+        }
+        return net;
+    }
+
+    /// <summary>
+    /// Trouve la colonne d'alignement après la première parenthèse ouvrante non fermée
+    /// dans la ligne formatée. Retourne -1 si aucune parenthèse éligible n'est trouvée
+    /// (parenthèses équilibrées ou pas de contenu après la parenthèse).
+    /// </summary>
+    private static int FindOpenParenColumn(string line)
+    {
+        bool inString = false;
+        int depth = 0;
+        int lastOpenPos = -1;
+
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+
+            if (c == '\'' && !inString)
+            {
+                inString = true;
+                continue;
+            }
+
+            if (c == '\'' && inString)
+            {
+                if (i + 1 < line.Length && line[i + 1] == '\'')
+                {
+                    i++; // quote échappé ''
+                    continue;
+                }
+                inString = false;
+                continue;
+            }
+
+            if (inString) continue;
+
+            // Commentaire ligne — arrêter l'analyse
+            if (c == '-' && i + 1 < line.Length && line[i + 1] == '-')
+                break;
+
+            if (c == '(')
+            {
+                depth++;
+                if (depth == 1)
+                {
+                    lastOpenPos = i;
+                }
+            }
+            else if (c == ')')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    lastOpenPos = -1; // cette ( était fermée, reset
+                }
+            }
+        }
+
+        // Vérifier qu'il y a du contenu non-vide après la parenthèse
+        if (lastOpenPos >= 0 && lastOpenPos + 1 < line.Length)
+        {
+            var rest = line[(lastOpenPos + 1)..].TrimStart();
+            if (rest.Length > 0 && !rest.StartsWith("--", StringComparison.Ordinal))
+            {
+                return lastOpenPos + 1;
+            }
+        }
+
+        return -1;
+    }
+
     // Regex compilées via GeneratedRegex pour les patterns de détection
 
     [GeneratedRegex(@"^END\s*(;|\s+\w+\s*;)", RegexOptions.IgnoreCase)]
@@ -551,8 +705,14 @@ public sealed partial class PlSqlFormatter
     [GeneratedRegex(@"^WHEN\s+.+\s+THEN\s*$", RegexOptions.IgnoreCase)]
     private static partial Regex WhenExceptionRegex();
 
+    [GeneratedRegex(@"^THEN\s*$", RegexOptions.IgnoreCase)]
+    private static partial Regex ThenStandaloneRegex();
+
     [GeneratedRegex(@"(PROCEDURE|FUNCTION)\s+\w+.*\s+(IS|AS)\s*$", RegexOptions.IgnoreCase)]
     private static partial Regex IsAsBlockRegex();
+
+    [GeneratedRegex(@"\)\s*(RETURN\s+.+\s+)?(IS|AS)\s*$", RegexOptions.IgnoreCase)]
+    private static partial Regex CloseParenIsAsRegex();
 
     [GeneratedRegex(@"^CREATE\s+(OR\s+REPLACE\s+)?PACKAGE(\s+BODY)?\s+\w+.*\s+(IS|AS)\s*$", RegexOptions.IgnoreCase)]
     private static partial Regex CreatePackageRegex();

@@ -217,7 +217,7 @@ Par défaut les fichiers sont écrits en UTF-8. Pour les bases Oracle avec un ch
 
 ## format-oracle
 
-Formate les fichiers PL/SQL `.sql` pour améliorer la lisibilité du code : indentation cohérente, normalisation des mots-clés en majuscules, nettoyage des espaces.
+Formate les fichiers PL/SQL `.sql` pour améliorer la lisibilité du code : indentation cohérente, alignement des paramètres sous la parenthèse ouvrante, normalisation des mots-clés en majuscules, nettoyage des espaces.
 
 ### Syntaxe
 
@@ -286,6 +286,8 @@ codengine format-oracle --config --engine combined
 | EXCEPTION | `EXCEPTION` | (fermé par le `END;` parent) |
 | PACKAGE | `CREATE OR REPLACE PACKAGE ... AS/IS` | `END nom;` |
 | PROCEDURE/FUNCTION | `PROCEDURE/FUNCTION ... IS/AS` | `END nom;` |
+| Signature multi-ligne | `) IS` / `) AS` / `) RETURN ... IS` | `END nom;` |
+| Paramètres multi-lignes | `PROCEDURE p(param1,` | `)` |
 
 Pour la documentation complète, voir [Formatage PL/SQL Oracle](./13-oracle-formatting.md).
 
