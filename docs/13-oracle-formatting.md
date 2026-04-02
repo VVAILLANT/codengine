@@ -8,6 +8,7 @@ La commande `format-oracle` formate les fichiers `.sql` contenant du code PL/SQL
 - **Normalisation des mots-clés** en majuscules (optionnel)
 - **Nettoyage des espaces** : suppression des trailing whitespace, consolidation des lignes vides
 - **Préservation de l'intégrité** : seule l'indentation est modifiée, jamais le contenu du code
+- **Multi-moteurs** : sélection du formateur : basic, sqlformatternet, combined
 
 ## Utilisation
 
@@ -30,6 +31,7 @@ codengine format-oracle C:\Projects\Database\PACKAGE
 | `--backup` | Créer un fichier `.bak` avant modification | false |
 | `--indent-size` | Nombre d'espaces par niveau d'indentation | 4 |
 | `--uppercase-keywords` | Mettre les mots-clés PL/SQL en majuscules | true |
+| `--engine` | Moteur de formatage : `basic`, `sqlformatternet`, `combined` | combined |
 | `--config` | Utiliser les valeurs de la section `oracle` de `codengine.config.json` | false |
 
 ### Exemples
@@ -46,6 +48,11 @@ codengine format-oracle --config --indent-size 2
 
 # Garder la casse originale des mots-clés
 codengine format-oracle --config --uppercase-keywords false
+
+# Forcer un moteur spécifique
+codengine format-oracle --config --engine basic
+codengine format-oracle --config --engine sqlformatternet
+codengine format-oracle --config --engine combined
 ```
 
 ## Configuration
@@ -60,7 +67,10 @@ Dans `codengine.config.json`, section `oracle.format` :
       "indentSize": 4,
       "uppercaseKeywords": true,
       "maxConsecutiveBlankLines": 1,
-      "trimTrailingWhitespace": true
+      "trimTrailingWhitespace": true,
+      "linesBetweenQueries": 1,
+      "maxLineLength": 0,
+      "engine": "combined"
     }
   }
 }
@@ -72,6 +82,9 @@ Dans `codengine.config.json`, section `oracle.format` :
 | `uppercaseKeywords` | boolean | `true` | Mettre les mots-clés PL/SQL en majuscules |
 | `maxConsecutiveBlankLines` | int | `1` | Nombre maximal de lignes vides consécutives conservées |
 | `trimTrailingWhitespace` | boolean | `true` | Supprimer les espaces en fin de ligne |
+| `linesBetweenQueries` | int | `1` | Lignes vides entre les requêtes (moteur SqlFormatterNet) |
+| `maxLineLength` | int | `0` | Longueur max des colonnes, 0 = illimité (moteur SqlFormatterNet) |
+| `engine` | string | `"combined"` | Moteur de formatage (voir ci-dessous) |
 
 ### Priorité des valeurs
 
@@ -80,7 +93,81 @@ Les options CLI ont toujours priorité sur la configuration :
 ```bash
 # Utilise la config mais override l'indentation
 codengine format-oracle --config --indent-size 2
+
+# Utilise la config mais force le moteur basic
+codengine format-oracle --config --engine basic
 ```
+
+## Moteurs de formatage
+
+Le formateur utilise une architecture multi-moteurs :
+
+| Moteur | Valeur `engine` | Dépendance | Usage optimal |
+|--------|----------------|------------|---------------|
+| **Basic** | `basic` | Aucune (built-in) | Packages PL/SQL, procédures, fonctions |
+| **SqlFormatterNet** | `sqlformatternet` | NuGet `Hogimn.Sql.Formatter` | Requêtes SQL simples (SELECT, INSERT, etc.) |
+| **Combined** | `combined` (recommandé) | Aucune | Le meilleur des deux : indentation PL/SQL + formatage SQL |
+
+En cas d'erreur d'un moteur, le système bascule automatiquement sur **Basic** (fallback).
+
+### Basic
+
+Formateur built-in à base de machine à états. Gère l'indentation de tous les blocs PL/SQL (`BEGIN`/`END`, `IF`/`THEN`, `LOOP`, `EXCEPTION`, `PACKAGE`, etc.) sans aucune dépendance externe.
+
+- ✅ Fiable et déterministe
+- ✅ Ne modifie jamais le contenu, uniquement l'indentation
+- ✅ Vérification d'intégrité intégrée
+- ❌ Ne reformate pas les requêtes SQL embarquées
+
+```bash
+codengine format-oracle --config --engine basic
+```
+
+### SqlFormatterNet
+
+Moteur basé sur le NuGet `Hogimn.Sql.Formatter` (100% C#). Reformate élégamment les requêtes SQL (SELECT, INSERT, UPDATE, DELETE, MERGE) avec indentation des clauses.
+
+- ✅ Formatage élégant des requêtes SQL multi-lignes
+- ✅ Supporte les options `linesBetweenQueries` et `maxLineLength`
+- ❌ Conçu pour les requêtes SQL, pas pour les blocs PL/SQL procéduraux
+
+```bash
+codengine format-oracle --config --engine sqlformatternet
+```
+
+### Combined (recommandé)
+
+Moteur hybride qui combine les deux approches en deux passes :
+
+1. **Passe 1 — Basic** : indentation correcte de tous les blocs PL/SQL
+2. **Passe 2 — SqlFormatterNet** : détection et reformatage des requêtes SQL embarquées (SELECT, INSERT, UPDATE, DELETE, MERGE) tout en préservant le niveau d'indentation
+
+- ✅ Indentation PL/SQL fiable (Basic)
+- ✅ Requêtes SQL reformatées élégamment (SqlFormatterNet)
+- ✅ Préserve les commentaires et string literals
+- ✅ Fallback automatique vers Basic si SqlFormatterNet échoue sur une requête
+
+```bash
+codengine format-oracle --config --engine combined
+```
+
+#### Fonctionnement du mode Combined
+
+```
+Fichier .sql
+  │
+  ├─ Passe 1 : Basic
+  │   └─ Indentation des blocs PL/SQL (BEGIN/END, IF/THEN, LOOP, etc.)
+  │
+  └─ Passe 2 : SqlFormatterNet (sur les requêtes détectées)
+      ├─ SELECT ... ;  → reformaté avec indentation des clauses
+      ├─ INSERT ... ;  → reformaté
+      ├─ UPDATE ... ;  → reformaté
+      ├─ DELETE ... ;  → reformaté
+      └─ MERGE ... ;   → reformaté
+```
+
+Les zones protégées (commentaires, strings, identifiants quotés) ne sont jamais modifiées.
 
 ## Blocs PL/SQL gérés
 

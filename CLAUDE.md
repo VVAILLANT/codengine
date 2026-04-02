@@ -27,6 +27,7 @@ codengine/
 │   │
 │   ├── Codengine.Connectors/     # Connecteurs externes
 │   │   └── Oracle/               # OraclePackageExtractor, PlSqlFormatter
+│   │       └── Formatting/       # Moteurs : Basic, SqlFormatterNet, Combined, Selector
 │   │
 │   ├── Codengine.Reporters/      # Sortie des résultats
 │   │   ├── ConsoleReporter.cs
@@ -120,7 +121,9 @@ codengine analyze ./src --untag            # Retirer les annotations
 codengine fix ./src                        # Auto-fix
 codengine fix ./src --dry-run              # Preview fixes
 codengine extract-oracle -c "..."          # Extraire packages Oracle
-codengine format-oracle --config           # Formater PL/SQL Oracle
+codengine format-oracle --config           # Formater PL/SQL Oracle (engine combined par défaut)
+codengine format-oracle --config --engine basic         # Moteur basic uniquement
+codengine format-oracle --config --engine combined      # Basic + SqlFormatterNet
 codengine list-rules                       # Lister règles
 codengine init                             # Créer config
 ```

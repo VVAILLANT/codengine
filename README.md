@@ -119,6 +119,9 @@ codengine format-oracle --config --indent-size 2
 
 # Désactiver la mise en majuscules des mots-clés
 codengine format-oracle --config --uppercase-keywords false
+
+# Choisir le moteur de formatage (basic, sqlformatternet, combined)
+codengine format-oracle --config --engine combined
 ```
 
 ### Autres commandes
@@ -173,7 +176,10 @@ Créez un fichier `codengine.config.json` à la racine de votre projet :
       "indentSize": 4,
       "uppercaseKeywords": true,
       "maxConsecutiveBlankLines": 1,
-      "trimTrailingWhitespace": true
+      "trimTrailingWhitespace": true,
+      "linesBetweenQueries": 1,
+      "maxLineLength": 0,
+      "engine": "combined"
     }
   },
   "failOnError": true,

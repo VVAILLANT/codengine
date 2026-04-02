@@ -253,6 +253,10 @@ class Program
             "--uppercase-keywords",
             "Mettre les mots-clés PL/SQL en majuscules");
 
+        var engineOption = new Option<string?>(
+            "--engine",
+            "Moteur de formatage : auto, basic, sqlformatternet, combined, sqlcl (défaut: auto)");
+
         var configOption = new Option<bool>(
             "--config",
             "Utiliser les valeurs de la section 'oracle' dans codengine.config.json");
@@ -264,6 +268,7 @@ class Program
             backupOption,
             indentSizeOption,
             uppercaseOption,
+            engineOption,
             configOption
         };
 
@@ -274,9 +279,10 @@ class Program
             var backup = context.ParseResult.GetValueForOption(backupOption);
             var indentSize = context.ParseResult.GetValueForOption(indentSizeOption);
             var uppercaseKeywords = context.ParseResult.GetValueForOption(uppercaseOption);
+            var engine = context.ParseResult.GetValueForOption(engineOption);
             var useConfig = context.ParseResult.GetValueForOption(configOption);
 
-            await FormatOracleHandler.RunAsync(path, dryRun, backup, indentSize, uppercaseKeywords, useConfig);
+            await FormatOracleHandler.RunAsync(path, dryRun, backup, indentSize, uppercaseKeywords, engine, useConfig);
         });
 
         return command;
@@ -331,11 +337,15 @@ class Program
     ""includePackageBodies"": true,
     ""includePatterns"": [],
     ""excludePatterns"": [],
+    ""sqlclPath"": null,
     ""format"": {
       ""indentSize"": 4,
       ""uppercaseKeywords"": true,
       ""maxConsecutiveBlankLines"": 1,
-      ""trimTrailingWhitespace"": true
+      ""trimTrailingWhitespace"": true,
+      ""linesBetweenQueries"": 1,
+      ""maxLineLength"": 0,
+      ""engine"": ""auto""
     }
   },
   ""failOnError"": true,

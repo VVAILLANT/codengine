@@ -1,5 +1,6 @@
 using System.Text;
 using Codengine.Connectors.Oracle;
+using Codengine.Connectors.Oracle.Formatting;
 using Codengine.Core.Configuration;
 
 namespace Codengine.Cli;
@@ -12,6 +13,7 @@ internal static class FormatOracleHandler
         bool backup,
         int? indentSize,
         bool? uppercaseKeywords,
+        string? engine,
         bool useConfig = false)
     {
         Program.PrintHeader();
@@ -60,15 +62,20 @@ internal static class FormatOracleHandler
 
         // Construire les options du formateur : CLI > config > défaut
         var formatConfig = oracleConfig?.Format ?? new OracleFormatConfig();
+        var engineMode = ParseEngineMode(engine ?? formatConfig.Engine);
         var options = new PlSqlFormatterOptions
         {
             IndentSize = indentSize ?? formatConfig.IndentSize,
             UppercaseKeywords = uppercaseKeywords ?? formatConfig.UppercaseKeywords,
             MaxConsecutiveBlankLines = formatConfig.MaxConsecutiveBlankLines,
-            TrimTrailingWhitespace = formatConfig.TrimTrailingWhitespace
+            TrimTrailingWhitespace = formatConfig.TrimTrailingWhitespace,
+            LinesBetweenQueries = formatConfig.LinesBetweenQueries,
+            MaxLineLength = formatConfig.MaxLineLength,
+            SqlclPath = oracleConfig?.SqlclPath,
+            Engine = engineMode
         };
 
-        var formatter = new PlSqlFormatter(options);
+        var engineSelector = new FormattingEngineSelector(options.SqlclPath);
         var sqlFiles = Directory.GetFiles(effectivePath, "*.sql", SearchOption.AllDirectories);
 
         if (sqlFiles.Length == 0)
@@ -83,6 +90,7 @@ internal static class FormatOracleHandler
         Console.WriteLine($"Fichiers   : {sqlFiles.Length} fichier(s) .sql");
         Console.WriteLine($"Indent     : {options.IndentSize} espaces");
         Console.WriteLine($"Keywords   : {(options.UppercaseKeywords ? "MAJUSCULES" : "inchangés")}");
+        Console.WriteLine($"Moteur     : {engineMode}");
         if (dryRun)
         {
             Console.ForegroundColor = ConsoleColor.Cyan;
@@ -102,9 +110,12 @@ internal static class FormatOracleHandler
             try
             {
                 var content = await File.ReadAllTextAsync(filePath);
-                var result = formatter.Format(content);
+                var engineResult = engineSelector.Format(content, options, engineMode);
 
-                if (!result.IsIntegrityValid)
+                // Vérification d'intégrité : le contenu non-whitespace doit être identique
+                var integrityOk = VerifyIntegrity(content, engineResult.FormattedCode, options.UppercaseKeywords);
+
+                if (!integrityOk)
                 {
                     Console.ForegroundColor = ConsoleColor.Red;
                     Console.WriteLine($"  ✗ {fileName} — intégrité compromise, fichier ignoré");
@@ -114,7 +125,7 @@ internal static class FormatOracleHandler
                 }
 
                 // Vérifier si le fichier a changé
-                if (string.Equals(content, result.FormattedCode, StringComparison.Ordinal))
+                if (string.Equals(content, engineResult.FormattedCode, StringComparison.Ordinal))
                 {
                     Console.ForegroundColor = ConsoleColor.DarkGray;
                     Console.WriteLine($"  ─ {fileName} (déjà formaté)");
@@ -123,10 +134,14 @@ internal static class FormatOracleHandler
                     continue;
                 }
 
+                var originalLineCount = content.Split('\n').Length;
+                var formattedLineCount = engineResult.FormattedCode.Split('\n').Length;
+
                 if (dryRun)
                 {
                     Console.ForegroundColor = ConsoleColor.Cyan;
-                    Console.WriteLine($"  ~ {fileName} ({result.OriginalLineCount} → {result.FormattedLineCount} lignes)");
+                    var engineInfo = engineResult.FallbackUsed ? $" [fallback → {engineResult.EngineName}]" : "";
+                    Console.WriteLine($"  ~ {fileName} ({originalLineCount} → {formattedLineCount} lignes){engineInfo}");
                     Console.ResetColor();
                     formatted++;
                     continue;
@@ -138,10 +153,11 @@ internal static class FormatOracleHandler
                     await File.WriteAllTextAsync(filePath + ".bak", content);
                 }
 
-                await File.WriteAllTextAsync(filePath, result.FormattedCode);
+                await File.WriteAllTextAsync(filePath, engineResult.FormattedCode);
 
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"  ✓ {fileName} ({result.OriginalLineCount} → {result.FormattedLineCount} lignes)");
+                var fallbackInfo = engineResult.FallbackUsed ? $" [fallback → {engineResult.EngineName}]" : "";
+                Console.WriteLine($"  ✓ {fileName} ({originalLineCount} → {formattedLineCount} lignes){fallbackInfo}");
                 Console.ResetColor();
                 formatted++;
             }
@@ -161,5 +177,44 @@ internal static class FormatOracleHandler
         {
             Environment.ExitCode = 1;
         }
+    }
+
+    /// <summary>
+    /// Vérifie que le contenu non-whitespace est identique entre l'original et le formaté.
+    /// </summary>
+    private static bool VerifyIntegrity(string original, string formatted, bool uppercaseKeywords)
+    {
+        var originalContent = NormalizeContent(original);
+        var formattedContent = NormalizeContent(formatted);
+
+        var comparison = uppercaseKeywords
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        return string.Equals(originalContent, formattedContent, comparison);
+    }
+
+    private static string NormalizeContent(string text)
+    {
+        var sb = new StringBuilder(text.Length);
+        foreach (char c in text)
+        {
+            if (!char.IsWhiteSpace(c))
+                sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
+    private static FormattingEngineMode ParseEngineMode(string engine)
+    {
+        return engine.ToLowerInvariant() switch
+        {
+            "auto" => FormattingEngineMode.Auto,
+            "basic" => FormattingEngineMode.Basic,
+            "sqlformatternet" => FormattingEngineMode.SqlFormatterNet,
+            "combined" => FormattingEngineMode.Combined,
+            "sqlcl" => FormattingEngineMode.Sqlcl,
+            _ => FormattingEngineMode.Auto
+        };
     }
 }

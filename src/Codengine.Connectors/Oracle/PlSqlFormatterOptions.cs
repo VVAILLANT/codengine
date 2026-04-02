@@ -1,3 +1,5 @@
+using Codengine.Connectors.Oracle.Formatting;
+
 namespace Codengine.Connectors.Oracle;
 
 public class PlSqlFormatterOptions
@@ -21,4 +23,24 @@ public class PlSqlFormatterOptions
     /// Supprimer les espaces en fin de ligne.
     /// </summary>
     public bool TrimTrailingWhitespace { get; init; } = true;
+
+    /// <summary>
+    /// Nombre de lignes vides entre les requêtes SQL (utilisé par SqlFormatterNet).
+    /// </summary>
+    public int LinesBetweenQueries { get; init; } = 1;
+
+    /// <summary>
+    /// Longueur maximale des colonnes avant retour à la ligne (utilisé par SqlFormatterNet, 0 = illimité).
+    /// </summary>
+    public int MaxLineLength { get; init; } = 0;
+
+    /// <summary>
+    /// Chemin vers l'exécutable Oracle SQLcl (optionnel, pour le moteur Sqlcl).
+    /// </summary>
+    public string? SqlclPath { get; init; }
+
+    /// <summary>
+    /// Moteur de formatage à utiliser. Auto sélectionne le meilleur moteur disponible.
+    /// </summary>
+    public FormattingEngineMode Engine { get; init; } = FormattingEngineMode.Auto;
 }

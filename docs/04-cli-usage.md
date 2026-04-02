@@ -239,6 +239,7 @@ codengine format-oracle [path] [options]
 | `--backup` | Créer un fichier `.bak` avant modification | false |
 | `--indent-size` | Nombre d'espaces par niveau d'indentation | 4 |
 | `--uppercase-keywords` | Mettre les mots-clés PL/SQL en majuscules | true |
+| `--engine` | Moteur de formatage : `basic`, `sqlformatternet`, `combined` | combined |
 | `--config` | Utiliser les valeurs de la section `oracle` de `codengine.config.json` | false |
 
 ### Exemples
@@ -261,6 +262,11 @@ codengine format-oracle --config --indent-size 2
 
 # Garder la casse originale des mots-clés
 codengine format-oracle --config --uppercase-keywords false
+
+# Choisir le moteur de formatage
+codengine format-oracle --config --engine basic
+codengine format-oracle --config --engine sqlformatternet
+codengine format-oracle --config --engine combined
 ```
 
 ### Garde-fous

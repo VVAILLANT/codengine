@@ -137,6 +137,12 @@ public class OracleConfig
     public string Encoding { get; set; } = "utf-8";
 
     /// <summary>
+    /// Chemin vers l'exécutable Oracle SQLcl (optionnel).
+    /// Exemple : "C:\\tools\\sqlcl\\bin\\sql.exe"
+    /// </summary>
+    public string? SqlclPath { get; set; }
+
+    /// <summary>
     /// Options de formatage PL/SQL pour la commande format-oracle.
     /// </summary>
     public OracleFormatConfig Format { get; set; } = new();
@@ -163,4 +169,19 @@ public class OracleFormatConfig
     /// Supprimer les espaces en fin de ligne (défaut: true).
     /// </summary>
     public bool TrimTrailingWhitespace { get; set; } = true;
+
+    /// <summary>
+    /// Nombre de lignes vides entre les requêtes SQL (défaut: 1, utilisé par SqlFormatterNet).
+    /// </summary>
+    public int LinesBetweenQueries { get; set; } = 1;
+
+    /// <summary>
+    /// Longueur maximale des colonnes avant retour à la ligne (défaut: 0 = illimité, utilisé par SqlFormatterNet).
+    /// </summary>
+    public int MaxLineLength { get; set; } = 0;
+
+    /// <summary>
+    /// Moteur de formatage : "auto", "basic", "sqlformatternet", "sqlcl" (défaut: "auto").
+    /// </summary>
+    public string Engine { get; set; } = "auto";
 }
