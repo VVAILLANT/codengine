@@ -49,6 +49,10 @@ public class EmptyListBeforeContainsRule : RuleBase
                 if (containingMethod == null)
                     continue;
 
+                // Si la liste est initialisée inline avec des éléments, elle ne peut pas être null/vide
+                if (IsListInitializedWithElements(containingMethod, listName, whereInvocation))
+                    continue;
+
                 if (!HasNullOrEmptyCheckBefore(containingMethod, listName, whereInvocation))
                 {
                     violations.Add(CreateViolation(
@@ -173,6 +177,57 @@ public class EmptyListBeforeContainsRule : RuleBase
         // Vérification via méthode Guard ou Assert
         if (text.Contains($"Guard") && text.Contains(listName))
             return true;
+
+        return false;
+    }
+
+    /// <summary>
+    /// Vérifie si la liste est déclarée et initialisée avec des éléments (collection initializer non vide)
+    /// avant l'appel Where, ce qui rend impossible qu'elle soit null ou vide.
+    /// </summary>
+    private static bool IsListInitializedWithElements(
+        MethodDeclarationSyntax method,
+        string listName,
+        InvocationExpressionSyntax whereInvocation)
+    {
+        var whereLine = whereInvocation.GetLocation().GetLineSpan().StartLinePosition.Line;
+
+        // Chercher les déclarations de variables locales avant le Where
+        var localDeclarations = method.DescendantNodes()
+            .OfType<LocalDeclarationStatementSyntax>()
+            .Where(d => d.GetLocation().GetLineSpan().StartLinePosition.Line < whereLine);
+
+        foreach (var declaration in localDeclarations)
+        {
+            foreach (var variable in declaration.Declaration.Variables)
+            {
+                if (variable.Identifier.Text != listName)
+                    continue;
+
+                // Vérifier que l'initializer est une création d'objet avec collection initializer non vide
+                if (variable.Initializer?.Value is ObjectCreationExpressionSyntax objectCreation
+                    && objectCreation.Initializer is InitializerExpressionSyntax initializer
+                    && initializer.Expressions.Count > 0)
+                {
+                    return true;
+                }
+
+                // Support pour new List<T> { ... } avec syntaxe implicite (target-typed new)
+                if (variable.Initializer?.Value is ImplicitObjectCreationExpressionSyntax implicitCreation
+                    && implicitCreation.Initializer is InitializerExpressionSyntax implicitInitializer
+                    && implicitInitializer.Expressions.Count > 0)
+                {
+                    return true;
+                }
+
+                // Support pour collection expression [a, b, c]
+                if (variable.Initializer?.Value is CollectionExpressionSyntax collectionExpr
+                    && collectionExpr.Elements.Count > 0)
+                {
+                    return true;
+                }
+            }
+        }
 
         return false;
     }

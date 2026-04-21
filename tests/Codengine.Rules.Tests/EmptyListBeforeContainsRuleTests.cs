@@ -150,6 +150,73 @@ public class Item { public int Id { get; set; } }
         Assert.Equal("COD002", violations[0].RuleId);
     }
 
+    [Fact]
+    public void Should_Not_Detect_When_List_Initialized_Inline_With_Elements()
+    {
+        // Liste initialisée avec des valeurs → ne peut pas être null/vide → pas de violation
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Test
+{
+    public void Method()
+    {
+        List<string> typeFluxFilter = new List<string>() { ""SCONTR"", ""DISPOR"", ""PICKUP"" };
+
+        var result = new Query<Item>(""connStr"")
+            .Where(i => typeFluxFilter.Contains(i.Type))
+            .ToList();
+    }
+}
+
+public class Query<T> {
+    public Query(string conn) {}
+    public Query<T> Where(System.Func<T,bool> f) => this;
+    public System.Collections.Generic.List<T> ToList() => new();
+}
+public class Item { public string Type { get; set; } }
+";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.Empty(violations);
+    }
+
+    [Fact]
+    public void Should_Detect_When_List_Initialized_Empty()
+    {
+        // Liste initialisée vide → doit détecter
+        var code = @"
+using System.Linq;
+using System.Collections.Generic;
+
+public class Test
+{
+    public void Method()
+    {
+        List<string> typeFluxFilter = new List<string>();
+
+        var result = new Query<Item>(""connStr"")
+            .Where(i => typeFluxFilter.Contains(i.Type))
+            .ToList();
+    }
+}
+
+public class Query<T> {
+    public Query(string conn) {}
+    public Query<T> Where(System.Func<T,bool> f) => this;
+    public System.Collections.Generic.List<T> ToList() => new();
+}
+public class Item { public string Type { get; set; } }
+";
+
+        var violations = AnalyzeCode(code);
+
+        Assert.NotEmpty(violations);
+        Assert.Contains(violations, v => v.RuleId == "COD002");
+    }
+
     private List<Violation> AnalyzeCode(string code)
     {
         var tree = CSharpSyntaxTree.ParseText(code);
